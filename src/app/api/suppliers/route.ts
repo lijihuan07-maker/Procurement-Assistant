@@ -13,12 +13,12 @@ export const GET = route(async ({ db, user }) => {
 });
 
 export const POST = route(async ({ req, db, user }) => {
-  const b = await body<{ name?: string; categories?: string[]; contact?: string; email?: string; phone?: string; city?: string; notes?: string }>(req);
+  const b = await body<{ name?: string; categories?: string[]; contact?: string; email?: string; phone?: string; city?: string; website?: string; notes?: string }>(req);
   const name = String(b.name || "").trim();
   if (!name) throw new HttpError(400, "请填写供应商名称");
   const [s] = await db.insert(schema.suppliers).values({
     companyId: user.companyId, name, categories: (b.categories || []).map(String).filter(Boolean),
-    contact: String(b.contact || ""), email: String(b.email || "").trim(), phone: String(b.phone || ""), city: String(b.city || ""), notes: String(b.notes || ""),
+    contact: String(b.contact || ""), email: String(b.email || "").trim(), phone: String(b.phone || ""), city: String(b.city || ""), website: String(b.website || "").trim(), notes: String(b.notes || ""),
   }).returning();
   return { supplier: s };
 });

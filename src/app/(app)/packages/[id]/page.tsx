@@ -5,6 +5,7 @@ import { api, download, fmt } from "@/lib/client/api";
 import { useBusy, Busy, StatusChip, toast, copyText } from "@/components/ui";
 import type { PackageData } from "@/lib/client/types";
 import { Compare } from "./Compare";
+import { Discover } from "@/components/Discover";
 import { type Ctx, rfqBlob, rfqFileName } from "./shared";
 
 type Tab = "rfq" | "suppliers" | "quotes";
@@ -123,7 +124,13 @@ function Suppliers({ d, setD, run, busy }: Ctx) {
   const invited = new Set(d.invites.map((i) => i.supplierId));
   const matched = d.recommendations.filter((r) => r.match);
   const others = d.recommendations.filter((r) => !r.match);
-  const [sel, setSel] = useState<string[]>(() => matched.filter((r) => !invited.has(r.supplier.id)).slice(0, 4).map((r) => r.supplier.id));
+  // Default pick: up to 3 suppliers we've bought from, plus 1 we never have (a new local option).
+  const [sel, setSel] = useState<string[]>(() => {
+    const open = matched.filter((r) => !invited.has(r.supplier.id));
+    const known = open.filter((r) => !r.isNew).slice(0, 3), fresh = open.filter((r) => r.isNew).slice(0, 1);
+    return [...known, ...fresh, ...open.filter((r) => !known.includes(r) && !fresh.includes(r))].slice(0, Math.max(4, known.length + fresh.length)).map((r) => r.supplier.id);
+  });
+  const [finding, setFinding] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [add, setAdd] = useState({ name: "", email: "", contact: "" });
   const cats = useMemo(() => [...new Set(d.lines.map((l) => l.category))], [d.lines]);
@@ -131,7 +138,7 @@ function Suppliers({ d, setD, run, busy }: Ctx) {
   const row = (r: PackageData["recommendations"][number], i: number) => (
     <tr key={r.supplier.id}>
       <td><input type="checkbox" aria-label={`选择 ${r.supplier.name}`} disabled={invited.has(r.supplier.id)} checked={invited.has(r.supplier.id) || sel.includes(r.supplier.id)} onChange={() => toggle(r.supplier.id)} /></td>
-      <td><b style={{ fontWeight: 500 }}>{r.supplier.name}</b>{r.match && i < 3 && <span className="chip good" style={{ marginLeft: 6 }}>推荐</span>}<span className="sub">{r.supplier.categories.join("、")}</span></td>
+      <td><b style={{ fontWeight: 500 }}>{r.supplier.name}</b>{r.match && i < 3 && !r.isNew && <span className="chip good" style={{ marginLeft: 6 }}>推荐</span>}{r.match && r.isNew && <span className="chip acc" style={{ marginLeft: 6 }}>新供应商</span>}<span className="sub">{r.supplier.categories.join("、")}</span></td>
       <td className="small">{r.supplier.email || <span className="dev">没有邮箱</span>}<span className="sub">{[r.supplier.contact, r.supplier.city].filter(Boolean).join(" · ")}</span></td>
       <td className="small">{r.reasons.join("；") || "—"}</td>
       <td>{invited.has(r.supplier.id) ? <span className="chip acc">已生成邮件</span> : null}</td>
@@ -163,6 +170,16 @@ function Suppliers({ d, setD, run, busy }: Ctx) {
               {showAll && others.map((r) => row(r, 99))}
             </tbody>
           </table></div>
+        )}
+        <div className="actions" style={{ marginTop: 6 }}>
+          <button className="sm" onClick={() => setFinding(!finding)}>{finding ? "收起网上搜索" : "网上找本地新供应商"}</button>
+          {!matched.some((r) => r.isNew) && <span className="small muted">建议每次至少加一家没合作过的本地供应商，方便比价。</span>}
+        </div>
+        {finding && (
+          <div className="q">
+            <Discover compact categories={cats.length ? cats : ["其他"]} defaultArea={d.project.location} materials={d.lines.map((l) => `${l.name} ${l.spec}`)}
+              onAdded={async (ids) => { const nd = await api<PackageData>(`/api/packages/${d.pkg.id}`); setD(nd); setSel([...new Set([...sel, ...ids])]); setFinding(false); }} />
+          </div>
         )}
         <form className="actions" onSubmit={quickAdd}>
           <span className="small muted">添加新供应商：</span>

@@ -51,12 +51,13 @@ export async function recommend(db: DB, companyId: string, categories: string[],
     const replied = sent.filter((i) => quoted.some((q) => q.supplierId === s.id && q.packageId === i.packageId));
     const last = mine.map((r) => r.date).sort().at(-1) || "";
     const reasons: string[] = [];
+    const isNew = !recs.some((r) => r.supplierName === s.name);
     if (mine.length) reasons.push(`同类采购 ${mine.length} 次${last ? "，最近 " + last : ""}`);
-    else if (catMatch) reasons.push("类别匹配，暂无成交记录");
+    else if (catMatch) reasons.push(isNew ? (s.source === "web" ? "网上找到的本地供应商，还没合作过" : "类别匹配，还没合作过") : "类别匹配，暂无同类成交记录");
     if (sent.length) reasons.push(`报价回复 ${replied.length}/${sent.length}`);
     if (s.rating) reasons.push(`评分 ${s.rating}`);
     const score = mine.length * 3 + (catMatch ? 2 : 0) + (sent.length ? (replied.length / sent.length) * 2 : 0) + (s.rating || 0) * 0.5 + (last ? 0.5 : 0);
-    return { supplier: s, score, reasons, match: mine.length > 0 || !!catMatch };
+    return { supplier: s, score, reasons, match: mine.length > 0 || !!catMatch, isNew };
   }).sort((a, b) => b.score - a.score);
 }
 
@@ -82,7 +83,7 @@ export async function loadPackage(db: DB, packageId: string) {
     rfqTemplate: (rfqTpl?.data as RfqTemplate) || null,
     emailTemplate: (emailTpl?.data as EmailTemplate) || DEFAULT_EMAIL,
     history,
-    recommendations: recos.map((r) => ({ supplier: r.supplier, reasons: r.reasons, score: r.score, match: r.match })),
+    recommendations: recos.map((r) => ({ supplier: r.supplier, reasons: r.reasons, score: r.score, match: r.match, isNew: r.isNew })),
   };
 }
 

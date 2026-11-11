@@ -107,3 +107,16 @@ export function supplierImportPrompt(fileName: string, content: string, hasImage
 5. 供应商的 categories 按它报价的物资判断。不能确定是公司的，宁可不输出。
 ${content ? "文件内容：\n" + content : ""}`;
 }
+
+export function discoverPrompt(q: { category: string; area: string; keywords: string; materials: string[]; exclude: string[] }) {
+  return `请上网搜索，找出在“${q.area}”能供应“${q.category}”${q.keywords ? `（${q.keywords}）` : ""}的本地公司：厂家、经销商、贸易商、建材市场里的门店都可以。用于工程项目询价，越能直接联系越好。
+${q.materials.length ? `这次要询价的物资示例：${q.materials.slice(0, 12).join("；")}\n` : ""}${q.exclude.length ? `下面这些已经在供应商库里了，不要再列出：${q.exclude.join("、")}\n` : ""}
+可以搜：Google 地图/商家目录、公司官网、当地商会名录、黄页（如 Daleeli、Yellow Pages）、LinkedIn、展会名录等。英文和阿拉伯文关键词都试一下。
+
+只输出 JSON：
+{"suppliers":[{"name":"公司名称（英文或原文，不要翻译成中文）","city":"所在城市","address":"地址","phone":"电话（带国家区号）","email":"邮箱","website":"官网或商家页面网址","products":"主营产品/品牌，简短","kind":"厂家 | 经销商 | 贸易商 | 门店 之一","evidence":"在哪里查到的，例如 Google 地图 / 官网 / 商会名录"}]}
+规则：
+1. 只列搜索结果里确实存在的公司，不能编造；电话、邮箱、网址查不到就留空字符串，不要猜。
+2. 优先列 ${q.area} 本地的，不够时可以补充同一国家其他城市、能送货到 ${q.area} 的公司，city 写真实所在城市。
+3. 尽量给 8–15 家，宁缺毋滥。`;
+}

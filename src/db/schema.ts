@@ -118,9 +118,10 @@ export const suppliers = pgTable("suppliers", {
   email: text("email").notNull().default(""),
   phone: text("phone").notNull().default(""),
   city: text("city").notNull().default(""),
+  website: text("website").notNull().default(""),
   rating: doublePrecision("rating"),
   notes: text("notes").notNull().default(""),
-  source: text("source").notNull().default("manual"), // manual | import
+  source: text("source").notNull().default("manual"), // manual | import | web
   createdAt: createdAt(),
 }, (t) => [index("suppliers_company_idx").on(t.companyId)]);
 

@@ -47,7 +47,7 @@ function friendlyError(status: number, body: string): string | null {
 }
 
 /* ---------------- Anthropic Claude ---------------- */
-async function callAnthropic(prompt: string, images: AiImage[], maxTokens: number): Promise<string> {
+async function callAnthropic(prompt: string, images: AiImage[], maxTokens: number, webSearch: boolean): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY) throw new HttpError(500, "服务器没有配置 ANTHROPIC_API_KEY，无法调用 AI");
   const client = new Anthropic();
   const content: Anthropic.ContentBlockParam[] = [
@@ -55,7 +55,8 @@ async function callAnthropic(prompt: string, images: AiImage[], maxTokens: numbe
     { type: "text", text: prompt },
   ];
   try {
-    const msg = await client.messages.stream({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5", max_tokens: maxTokens, system: SYSTEM, messages: [{ role: "user", content }] }).finalMessage();
+    const tools: Anthropic.ToolUnion[] | undefined = webSearch ? [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }] : undefined;
+    const msg = await client.messages.stream({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5", max_tokens: maxTokens, system: SYSTEM, messages: [{ role: "user", content }], ...(tools ? { tools } : {}) }).finalMessage();
     return msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   } catch (e) {
     if (e instanceof Anthropic.APIError && e.status && e.status < 500 && e.status !== 429) throw e;
@@ -64,7 +65,7 @@ async function callAnthropic(prompt: string, images: AiImage[], maxTokens: numbe
 }
 
 /* ---------------- OpenAI-compatible (通义千问 / DeepSeek / Kimi / 智谱 …) ---------------- */
-async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens: number): Promise<string> {
+async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens: number, webSearch: boolean): Promise<string> {
   const base = (process.env.AI_BASE_URL || "").replace(/\/+$/, "");
   const key = process.env.AI_API_KEY;
   if (!base || !key) throw new HttpError(500, "服务器没有配置 AI_BASE_URL 或 AI_API_KEY，无法调用 AI");
@@ -75,12 +76,19 @@ async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens
   const content = images.length
     ? [...images.map((im) => ({ type: "image_url", image_url: { url: `data:${im.mediaType};base64,${im.data}` } })), { type: "text", text: prompt }]
     : prompt;
+  // Web search (通义千问 enable_search). "max" searches more widely; fall back to the default strategy if the model refuses it.
+  let strategy = process.env.AI_SEARCH_STRATEGY || "max";
+  const search = () => (webSearch ? { enable_search: true, search_options: { forced_search: true, search_strategy: strategy } } : {});
   const send = (max: number) => fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, stream: true, max_tokens: max, temperature: 0.1, messages: [{ role: "system", content: SYSTEM }, { role: "user", content }] }),
+    body: JSON.stringify({ model, stream: true, max_tokens: max, temperature: 0.1, messages: [{ role: "system", content: SYSTEM }, { role: "user", content }], ...search() }),
   });
   let res = await send(Math.min(maxTokens, cap));
+  if (res.status === 400 && webSearch && strategy !== "turbo") {
+    const t = await res.clone().text();
+    if (/search/i.test(t) && !friendlyError(400, t)) { strategy = "turbo"; res = await send(Math.min(maxTokens, cap)); }
+  }
   if (res.status === 400) {
     const t = await res.text();
     const friendly = friendlyError(400, t);
@@ -124,13 +132,13 @@ async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens
 }
 
 /** Ask the configured model for a JSON object. Retries once on transient errors or invalid JSON. */
-export async function askJson<T>(task: string, prompt: string, opts: { images?: AiImage[]; maxTokens?: number; mockKey?: string } = {}): Promise<T> {
+export async function askJson<T>(task: string, prompt: string, opts: { images?: AiImage[]; maxTokens?: number; mockKey?: string; webSearch?: boolean } = {}): Promise<T> {
   if (process.env.AI_MOCK === "1") return (await mock(task, opts.mockKey)) as T;
   const call = provider() === "openai" ? callOpenAiCompatible : callAnthropic;
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return extractJson(await call(prompt, opts.images || [], opts.maxTokens ?? 16000)) as T;
+      return extractJson(await call(prompt, opts.images || [], opts.maxTokens ?? 16000, !!opts.webSearch)) as T;
     } catch (e) {
       lastErr = e;
       if (e instanceof HttpError) throw e;

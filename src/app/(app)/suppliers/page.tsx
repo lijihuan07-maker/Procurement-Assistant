@@ -5,6 +5,7 @@ import { readForAi } from "@/lib/client/files";
 import { useBusy, Busy, Drop, toast } from "@/components/ui";
 import type { Supplier } from "@/lib/client/types";
 import { CATEGORIES } from "@/lib/checklist";
+import { Discover } from "@/components/Discover";
 
 type Row = Supplier & { purchases: number; lastDate: string | null };
 
@@ -92,6 +93,11 @@ export default function Suppliers() {
           </form>
         </section>
       </div>
+      <section className="panel">
+        <h2>从网上找本地供应商</h2>
+        <p className="small muted" style={{ margin: "0 0 10px" }}>选材料类别和地区，AI 联网搜索当地的厂家、经销商和门店，带回电话、网址等信息。核对后勾选加入，会标记为“网上找到、未合作”，询价时作为新供应商推荐。</p>
+        <Discover categories={CATEGORIES} onAdded={() => load()} />
+      </section>
       {pv && (
         <section className="panel">
           <div className="panel-head">
@@ -136,9 +142,9 @@ export default function Suppliers() {
             <tbody>{shown.map((s) => (
               <tr key={s.id}>
                 <td><input type="checkbox" aria-label={`选择 ${s.name}`} checked={picked.includes(s.id)} onChange={() => setPicked(picked.includes(s.id) ? picked.filter((x) => x !== s.id) : [...picked, s.id])} /></td>
-                <td><b style={{ fontWeight: 500 }}>{s.name}</b>{s.source === "import" && <span className="sub">导入</span>}</td>
+                <td><b style={{ fontWeight: 500 }}>{s.name}</b>{s.source !== "manual" && <span className="sub">{s.source === "web" ? "网上找到" : "导入"}{!s.purchases ? " · 未合作" : ""}</span>}</td>
                 <td className="small"><input aria-label={`${s.name} 类别`} list="cats" defaultValue={s.categories.join("、")} placeholder="类别，多个用顿号隔开" title={`可选：${CATEGORIES.join("、")}`} onBlur={(e) => { const v = e.target.value.split(/[、,，;；]/).map((x) => x.trim()).filter(Boolean); if (v.join("、") !== s.categories.join("、")) patch(s.id, { categories: v }); }} style={{ width: 170, fontSize: 12.5, padding: "3px 6px" }} /></td>
-                <td className="small"><input aria-label={`${s.name} 邮箱`} defaultValue={s.email} placeholder="邮箱" onBlur={(e) => e.target.value !== s.email && patch(s.id, { email: e.target.value })} style={{ width: 200, fontSize: 12.5, padding: "3px 6px" }} /><span className="sub">{[s.contact, s.phone, s.city].filter(Boolean).join(" · ")}</span></td>
+                <td className="small"><input aria-label={`${s.name} 邮箱`} defaultValue={s.email} placeholder="邮箱" onBlur={(e) => e.target.value !== s.email && patch(s.id, { email: e.target.value })} style={{ width: 200, fontSize: 12.5, padding: "3px 6px" }} /><span className="sub">{[s.contact, s.phone, s.city].filter(Boolean).join(" · ")}{s.website && <> · <a href={/^https?:\/\//i.test(s.website) ? s.website : `https://${s.website}`} target="_blank" rel="noreferrer">网址</a></>}</span></td>
                 <td className="n">{s.purchases}</td>
                 <td className="small">{s.lastDate || "—"}</td>
                 <td><input aria-label={`${s.name} 评分`} type="number" min="0" max="5" step="0.5" defaultValue={s.rating ?? ""} onBlur={(e) => patch(s.id, { rating: e.target.value === "" ? null : Number(e.target.value) })} style={{ width: 70, fontSize: 12.5, padding: "3px 6px" }} /></td>

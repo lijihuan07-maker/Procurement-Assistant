@@ -9,7 +9,7 @@ export type ProjectData = {
   specDocs: { id: string; fileName: string; pages: number; sections: number; createdAt: string }[];
 };
 
-export type Supplier = { id: string; name: string; categories: string[]; contact: string; email: string; phone: string; city: string; rating: number | null; notes: string; source: string };
+export type Supplier = { id: string; name: string; categories: string[]; contact: string; email: string; phone: string; city: string; website: string; rating: number | null; notes: string; source: string };
 export type QuoteRec = { id: string; packageId: string; supplierId: string | null; fileName: string; status: string; error: string | null; data: QuoteData; createdAt: string };
 export type Invite = { id: string; supplierId: string; subject: string; body: string; status: string; sentAt: string | null; recommended: string; supplier: Supplier };
 export type PackageData = {
@@ -19,5 +19,5 @@ export type PackageData = {
   lines: RfqLine[]; quotes: QuoteRec[]; invites: Invite[];
   rfqTemplate: RfqTemplate | null; emailTemplate: EmailTemplate;
   history: Record<string, { supplierName: string; unitPrice: number; unit: string; currency: string; date: string; source: string } | null>;
-  recommendations: { supplier: Supplier; reasons: string[]; score: number; match: boolean }[];
+  recommendations: { supplier: Supplier; reasons: string[]; score: number; match: boolean; isNew: boolean }[];
 };
