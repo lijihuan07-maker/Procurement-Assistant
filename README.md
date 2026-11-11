@@ -16,15 +16,21 @@
 
 ## 部署（Vercel + Neon，免费额度即可起步）
 
-需要准备：GitHub 账号、[Vercel](https://vercel.com) 账号、[Neon](https://neon.tech) 账号、[Anthropic API Key](https://console.anthropic.com)。
+需要准备：GitHub 账号、[Vercel](https://vercel.com) 账号、[Neon](https://neon.tech) 账号，以及一个 AI 模型的 API Key：国内用户推荐[阿里云百炼](https://bailian.console.aliyun.com)（通义千问，支付宝付费），有海外付款方式也可以用 [Anthropic Claude](https://platform.claude.com)。
 
 1. **代码放到 GitHub**：新建一个私有仓库，把本项目所有文件上传进去。
 2. **建数据库**：在 Neon 新建项目，区域选离用户近的（中东用户可选欧洲区域）。复制连接串（`postgresql://...`，选带 `-pooler` 的那个）。
 3. **导入到 Vercel**：Vercel → Add New → Project → 选择刚才的 GitHub 仓库。
 4. **填环境变量**（Vercel 项目 → Settings → Environment Variables）：
    - `DATABASE_URL` = Neon 连接串
-   - `ANTHROPIC_API_KEY` = 你的 API Key
-   - 可选 `ANTHROPIC_MODEL`，默认 `claude-sonnet-5-5`
+   - 用通义千问时填这 5 项：
+     - `AI_PROVIDER` = `openai`
+     - `AI_BASE_URL` = `https://dashscope.aliyuncs.com/compatible-mode/v1`
+     - `AI_API_KEY` = 百炼控制台里创建的 API Key（`sk-` 开头）
+     - `AI_MODEL` = `qwen-plus`（文字识别）
+     - `AI_VISION_MODEL` = `qwen3-vl-plus`（扫描件和图片识别）
+   - 用 Claude 时只填 `ANTHROPIC_API_KEY`（可选 `ANTHROPIC_MODEL`，默认 `claude-sonnet-5-5`）
+   - 模型名称以百炼控制台“模型广场”里实际可用的为准，换模型只需改这两个变量，不用改代码。
 5. **部署**：点 Deploy。首次访问时会自动建表。打开网址 → 注册公司账号即可使用。
 
 以后改了代码，推送到 GitHub，Vercel 会自动重新部署。
@@ -39,7 +45,7 @@
 
 ```bash
 npm install
-cp .env.example .env.local   # 填 ANTHROPIC_API_KEY；不填 DATABASE_URL 时使用内置数据库（.data 目录）
+cp .env.example .env.local   # 填 AI 模型的 Key；不填 DATABASE_URL 时使用内置数据库（.data 目录）
 npm run dev                  # http://localhost:3000
 ```
 
@@ -56,7 +62,7 @@ src/
   app/(app)/settings/    公司设置、询价单模板、邮件模板、成员
   app/api/               接口（全部按公司做权限校验）
   db/                    数据库结构（Drizzle）与连接
-  lib/ai.ts, prompts.ts  调用 Claude 和提示词
+  lib/ai.ts, prompts.ts  调用 AI 模型（Claude 或兼容 OpenAI 的国内模型）和提示词
   lib/checklist.ts       材料澄清参数清单（可持续扩充）
   lib/compare.ts         比价计算与规则核对（前后端共用）
   lib/client/            浏览器端：文件读取、Excel 生成
