@@ -80,3 +80,30 @@ ${JSON.stringify(data)}
 "summary":"两到三句中文：谁总价最低、低多少，以及定标前最需要先处理的问题"}
 重点检查：不同供应商是否疑似同一货源（品名写法、行顺序、取整数量、条款文字高度一致而价格大致成比例）；是否所有供应商都偏离同一规格；付款、锁价、有效期、交货与询价要求冲突；按包装或托盘取整导致多报。不要重复已由规则检查的缺项、合计核对、价差。只写有依据的问题，按严重程度排序，最多 8 条。`;
 }
+
+export function titlePrompt(lines: { name: string; spec: string; category: string }[]) {
+  return `下面是一份询价单里的全部物资。请给这份询价单起一个简短的名称，让供应商一眼看出询的是哪类材料。
+
+只输出 JSON：{"titleCn":"中文名称，不超过 16 个字，例如：瓷砖及铺贴辅材","titleEn":"ENGLISH TITLE IN CAPITALS, under 8 words, e.g. CERAMIC & PORCELAIN TILES"}
+规则：概括材料大类，不要写数量、项目名称、编号，也不要加“询价单”字样。
+物资：
+${lines.map((l, i) => `${i + 1}. ${l.name}｜${l.spec}｜${l.category}`).join("\n").slice(0, 20000)}`;
+}
+
+export function supplierImportPrompt(fileName: string, content: string, hasImages: boolean) {
+  return `下面是用户上传的一份文件“${fileName}”${hasImages ? "（附图是文件页面）" : ""}，里面可能是供应商名录、历史采购订单/台账，或者以前做过的比价表（这种表通常每个供应商占一组列，表头是供应商名称，行是物资）。请从中找出真实的供应商公司，以及每家供应商对每种物资给过的单价。
+
+材料类别只能用这些：${CATEGORIES.join("、")}
+
+只输出 JSON：
+{"fileKind":"suppliers | purchases | comparison | other 之一",
+"suppliers":[{"name":"公司名称（原文，不要翻译）","categories":["材料类别"],"contact":"联系人","email":"邮箱","phone":"电话","city":"城市","notes":"其他有用信息，如付款条件、交期"}],
+"prices":[{"supplier":"必须和 suppliers 里的 name 完全一致","material":"物资名称","spec":"规格","unit":"单位","unitPrice":12.5,"currency":"SAR","date":"YYYY-MM-DD，没有就空字符串","kind":"purchase（实际采购/中标）或 quote（只是报价）"}]}
+规则：
+1. 只有公司（厂家、贸易商、分包商）才是供应商。序号、金额、合计、电话、日期、付款/交货条件、评标方法、表头文字（如“单价（SAR）”“供应商名称”）、本公司和业主的名称都不是供应商。
+2. 比价表里，没被选中的供应商的价格 kind 为 quote；有“中标/推荐/选定”标记的为 purchase。看不出来就都按 quote。
+3. 电话、邮箱、联系人写在供应商名称下方或旁边的，归到对应供应商。
+4. unitPrice 为不含千分位的纯数字，取单价，不要取总价；没有单价的不要输出这一条价格。
+5. 供应商的 categories 按它报价的物资判断。不能确定是公司的，宁可不输出。
+${content ? "文件内容：\n" + content : ""}`;
+}

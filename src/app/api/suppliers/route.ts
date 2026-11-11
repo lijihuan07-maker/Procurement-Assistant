@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { schema } from "@/db";
 import { route, body, HttpError } from "@/lib/http";
 
@@ -21,4 +21,15 @@ export const POST = route(async ({ req, db, user }) => {
     contact: String(b.contact || ""), email: String(b.email || "").trim(), phone: String(b.phone || ""), city: String(b.city || ""), notes: String(b.notes || ""),
   }).returning();
   return { supplier: s };
+});
+
+/** Delete several suppliers at once (e.g. to clean up a bad import). Their price records are removed too. */
+export const DELETE = route(async ({ req, db, user }) => {
+  const b = await body<{ ids?: string[] }>(req);
+  const ids = (b.ids || []).map(String).filter(Boolean);
+  if (!ids.length) throw new HttpError(400, "没有选择要删除的供应商");
+  const gone = await db.delete(schema.suppliers).where(and(eq(schema.suppliers.companyId, user.companyId), inArray(schema.suppliers.id, ids))).returning({ name: schema.suppliers.name });
+  const names = gone.map((g) => g.name);
+  if (names.length) await db.delete(schema.priceRecords).where(and(eq(schema.priceRecords.companyId, user.companyId), eq(schema.priceRecords.source, "import"), inArray(schema.priceRecords.supplierName, names)));
+  return { deleted: gone.length };
 });

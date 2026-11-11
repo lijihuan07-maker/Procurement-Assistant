@@ -69,6 +69,7 @@ const QUOTE_NOTES = [
 export type RfqDoc = { rfqNo: string; titleCn: string; titleEn: string; project: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[]; template: RfqTemplate | null };
 
 export async function buildRfq(d: RfqDoc): Promise<Blob> {
+  if (d.template?.fileB64) return buildFromTemplate(d, d.template.fileB64);
   const ExcelJS = await lib();
   const vatPct = Math.round(d.vatRate * 10000) / 100;
   const wb = new ExcelJS.Workbook();
@@ -90,7 +91,7 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   d.lines.forEach((ln) => {
     const nameParts = ln.name.split(/\s+(?=[A-Z0-9])/);
     const vals: unknown[] = [Number(ln.no), nameParts.length > 1 ? `${nameParts[0]}\n${nameParts.slice(1).join(" ")}` : ln.name, ln.spec, ln.unit, ln.qty, null,
-      { formula: `ROUND(F${r}*${d.vatRate},2)` }, { formula: `F${r}+G${r}` }, { formula: `E${r}*G${r}` }, { formula: `E${r}*H${r}` }, ln.techReq, ln.hint];
+      { formula: `ROUND(F${r}*${d.vatRate},2)` }, { formula: `F${r}+G${r}` }, { formula: `E${r}*G${r}` }, { formula: `E${r}*H${r}` }, ln.techReq, null];
     vals.forEach((v, i) => { const c = ws.getCell(r, i + 1); c.value = v as never; c.font = XF; c.border = BOX; c.alignment = { wrapText: true, vertical: "middle", horizontal: i === 0 || i === 3 ? "center" : i >= 4 && i <= 9 ? "right" : "left" }; });
     ws.getCell(r, 5).numFmt = "#,##0.###"; [6, 7, 8, 9, 10].forEach((i) => (ws.getCell(r, i).numFmt = "#,##0.00"));
     ws.getCell(r, 6).fill = fill("FFFFF6CC");
@@ -130,6 +131,140 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   block("Quotation Instructions\n（报价说明）", QUOTE_NOTES);
   ["Supplier\n（供应商公司名称）", "Signature & Stamp\n（签字盖章）", "Date of Quotation\n（报价日期）"].forEach((l) => { block(l, [""]); ws.getRow(r - 1).height = 30; });
   return new Blob([await wb.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+/* ---------------- RFQ from the customer's own template file ---------------- */
+const b64ToBuf = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+const bufToB64 = (buf: ArrayBuffer) => { const u = new Uint8Array(buf); let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
+const cellText = (v: unknown): string => {
+  if (v == null) return "";
+  if (typeof v === "object") { const o = v as { richText?: { text: string }[]; text?: string; result?: unknown }; if (o.richText) return o.richText.map((t) => t.text).join(""); if (o.text) return String(o.text); if ("result" in o) return String(o.result ?? ""); }
+  return String(v);
+};
+const colNum = (l: string) => l.split("").reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+
+/** Keep the template small: first sheet only, images removed (they belong to old line items). */
+export async function slimTemplate(file: ArrayBuffer): Promise<string> {
+  const ExcelJS = await lib();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(file);
+  while (wb.worksheets.length > 1) wb.removeWorksheet(wb.worksheets[wb.worksheets.length - 1].id);
+  (wb as unknown as { media: unknown[] }).media = [];
+  wb.worksheets.forEach((ws) => { (ws as unknown as { _media: unknown[] })._media = []; });
+  return bufToB64(await wb.xlsx.writeBuffer() as ArrayBuffer);
+}
+
+async function buildFromTemplate(d: RfqDoc, fileB64: string): Promise<Blob> {
+  const ExcelJS = await lib();
+  const src = new ExcelJS.Workbook();
+  await src.xlsx.load(b64ToBuf(fileB64));
+  const sw = src.worksheets[0];
+  const out = new ExcelJS.Workbook();
+  const dw = out.addWorksheet(sw.name || "RFQ", { pageSetup: { ...sw.pageSetup }, views: sw.views });
+  const maxCol = Math.max(sw.columnCount, 12);
+  for (let c = 1; c <= maxCol; c++) { const w = sw.getColumn(c).width; if (w) dw.getColumn(c).width = w; }
+
+  // Locate the parts of the template.
+  let hdr = 0, total = 0;
+  for (let r = 1; r <= sw.rowCount; r++) {
+    const a = cellText(sw.getCell(r, 1).value).trim();
+    if (!hdr && /^item/i.test(a)) hdr = r;
+    else if (hdr && !total && /in\s*total/i.test(a)) total = r;
+  }
+  if (!hdr) throw new Error("模板里没有找到以 “Item” 开头的表头行");
+  const proto = hdr + 1;
+  if (!total) total = proto + 1;
+  const merges: string[] = ((sw.model as unknown as { merges?: string[] }).merges) || [];
+  const parsedMerges = merges.map((m) => { const x = m.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/); return x ? { c1: colNum(x[1]), r1: +x[2], c2: colNum(x[3]), r2: +x[4] } : null; }).filter((x): x is { c1: number; r1: number; c2: number; r2: number } => !!x);
+  const isSlave = (r: number, c: number) => parsedMerges.some((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2 && !(r === m.r1 && c === m.c1));
+  const style = (cell: { style?: unknown }) => JSON.parse(JSON.stringify(cell.style || {}));
+
+  const copyRow = (from: number, to: number, withValues: boolean) => {
+    const sr = sw.getRow(from), dr = dw.getRow(to);
+    if (sr.height) dr.height = sr.height;
+    for (let c = 1; c <= maxCol; c++) {
+      const sc = sw.getCell(from, c), dc = dw.getCell(to, c);
+      dc.style = style(sc);
+      if (!withValues || isSlave(from, c)) continue;
+      const f = (sc as unknown as { formula?: string }).formula;
+      dc.value = (f ? { formula: f } : (sc.value as never)) as never;
+    }
+  };
+  const mergeRows = (fromA: number, fromB: number, offset: number) => {
+    for (const m of parsedMerges) if (m.r1 >= fromA && m.r2 <= fromB) dw.mergeCells(m.r1 + offset, m.c1, m.r2 + offset, m.c2);
+  };
+
+  // 1. Header block, with the title / request lines rewritten.
+  for (let r = 1; r <= hdr; r++) copyRow(r, r, true);
+  mergeRows(1, hdr, 0);
+  const suffix = d.template?.titleSuffix || d.project || "";
+  for (let r = 1; r < hdr; r++) {
+    const c = dw.getCell(r, 1); const t = cellText(c.value).trim();
+    if (/^RFQ for/i.test(t)) c.value = `RFQ for ${d.titleEn || d.titleCn}${suffix ? " - " + suffix : ""}`;
+    else if (/^request\s*no/i.test(t)) c.value = `Request No.: ${d.rfqNo}`;
+    else if (/^request\s*:/i.test(t)) c.value = `Request: ${d.titleEn || ""}${d.titleCn ? "（" + d.titleCn + "）" : ""}`;
+  }
+
+  // 2. Column roles from the header row.
+  const role: Record<string, number> = {};
+  for (let c = 1; c <= maxCol; c++) {
+    const h = cellText(sw.getCell(hdr, c).value).toLowerCase();
+    if (!h || isSlave(hdr, c)) continue;
+    if (/^item|序号/.test(h)) role.no ??= c;
+    else if (/descr|内容|名称/.test(h)) { role.name ??= c; const m = parsedMerges.find((x) => x.r1 === hdr && x.c1 === c && x.c2 > c); if (m) role.spec ??= c + 1; }
+    else if (/spec|规格/.test(h)) role.spec ??= c;
+    else if (/unit price|单价/.test(h)) role.price ??= c;
+    else if (/^unit|单位/.test(h)) role.unit ??= c;
+    else if (/qty|quantity|数量/.test(h)) role.qty ??= c;
+    else if (/technical|技术/.test(h)) role.tech ??= c;
+  }
+  const protoFormulas: Record<number, string> = {};
+  for (let c = 1; c <= maxCol; c++) { const f = (sw.getCell(proto, c) as unknown as { formula?: string }).formula; if (f) protoFormulas[c] = f; }
+  const shift = (f: string, to: number) => f.replace(/(\$?[A-Z]{1,3}\$?)(\d+)/g, (m, col, row) => (Number(row) === proto ? `${col}${to}` : m));
+  const rowMerges = parsedMerges.filter((m) => m.r1 === proto && m.r2 === proto);
+
+  // 3. Line items, styled like the template's first item row.
+  const first = hdr + 1;
+  d.lines.forEach((ln, i) => {
+    const r = first + i;
+    copyRow(proto, r, false);
+    for (const m of rowMerges) dw.mergeCells(r, m.c1, r, m.c2);
+    const parts = ln.name.split(/\s+(?=[A-Z0-9])/);
+    const name = parts.length > 1 ? `${parts[0]}\n${parts.slice(1).join(" ")}` : ln.name;
+    const set = (c: number | undefined, v: unknown) => { if (c) dw.getCell(r, c).value = v as never; };
+    set(role.no, Number(ln.no)); set(role.name, name); set(role.spec, ln.spec); set(role.unit, ln.unit); set(role.qty, ln.qty); set(role.tech, ln.techReq);
+    if (role.price) dw.getCell(r, role.price).value = null;
+    for (const [c, f] of Object.entries(protoFormulas)) dw.getCell(r, Number(c)).value = { formula: shift(f, r) } as never;
+    // Height to fit the longest text at the template's font size.
+    let lines = 1;
+    for (const c of [role.name, role.spec, role.tech].filter(Boolean) as number[]) {
+      const cell = dw.getCell(r, c); const size = Number((cell.font as { size?: number })?.size) || 11;
+      const per = Math.max(4, Math.floor(((dw.getColumn(c).width || 10) * 11) / size / 1.6));
+      lines = Math.max(lines, estLines(cellText(cell.value), per));
+    }
+    const size = Number((dw.getCell(r, role.name || 2).font as { size?: number })?.size) || 11;
+    dw.getRow(r).height = Math.min(160, Math.max(30, Math.ceil(lines * size * 1.45 + 10)));
+  });
+  const last = first + d.lines.length - 1;
+
+  // 4. Total row and everything below it, shifted by the change in item count.
+  const offset = last + 1 - total;
+  for (let r = total; r <= sw.rowCount; r++) copyRow(r, r + offset, true);
+  mergeRows(total, sw.rowCount, offset);
+  for (let c = 1; c <= maxCol; c++) {
+    const cell = dw.getCell(total + offset, c);
+    const f = (cell.value as { formula?: string } | null)?.formula;
+    if (f && /SUM\(/i.test(f)) cell.value = { formula: f.replace(/SUM\(\s*(\$?[A-Z]{1,3})\$?\d+\s*:\s*(\$?[A-Z]{1,3})\$?\d+\s*\)/gi, (_m, a, b) => `SUM(${a}${first}:${b}${last})`) } as never;
+  }
+  const fmtDate = (s: string) => (s ? s.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, "$1.$2.$3") : "");
+  for (let r = total + 1 + offset; r <= sw.rowCount + offset; r++) {
+    const label = cellText(dw.getCell(r, 1).value);
+    const valueCell = dw.getCell(r, 3);
+    if (/deadline|截止/i.test(label)) valueCell.value = fmtDate(d.deadline);
+    else if (/valid|有效期/i.test(label)) valueCell.value = d.validity;
+    else if (/payment|支付/i.test(label)) valueCell.value = d.payment;
+  }
+  return new Blob([await out.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
 /* ---------------- comparison export ---------------- */

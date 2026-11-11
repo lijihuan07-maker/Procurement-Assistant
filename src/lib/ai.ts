@@ -37,6 +37,15 @@ async function mock(task: string, mockKey?: string): Promise<unknown> {
 
 class RetryableError extends Error {}
 
+/** Turn common provider errors into instructions the user can act on. */
+function friendlyError(status: number, body: string): string | null {
+  if (/Arrearage|overdue-payment|insufficient.?(balance|quota)|余额不足|欠费/i.test(body)) return "AI 服务账户余额不足或已欠费：请到模型服务商的费用中心充值（阿里云：费用与成本 → 充值），充值后重试。";
+  if (status === 401 || /InvalidApiKey|invalid.?api.?key|Incorrect API key/i.test(body)) return "AI 的 API Key 不正确或已失效：请在 Vercel 的环境变量里检查 AI_API_KEY，修改后重新部署。";
+  if (status === 404 || /model.?not.?found|ModelNotFound|does not exist/i.test(body)) return "模型名称在你的账号里不可用：请到模型服务商控制台核对 AI_MODEL / AI_VISION_MODEL 的名称。";
+  if (/Access denied|AccessDenied|not.?activated|未开通/i.test(body)) return "AI 服务没有开通或账号状态异常：请到模型服务商控制台检查服务是否已开通、账号是否正常。";
+  return null;
+}
+
 /* ---------------- Anthropic Claude ---------------- */
 async function callAnthropic(prompt: string, images: AiImage[], maxTokens: number): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY) throw new HttpError(500, "服务器没有配置 ANTHROPIC_API_KEY，无法调用 AI");
@@ -74,12 +83,16 @@ async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens
   let res = await send(Math.min(maxTokens, cap));
   if (res.status === 400) {
     const t = await res.text();
+    const friendly = friendlyError(400, t);
+    if (friendly) throw new HttpError(502, friendly);
     // Some models accept fewer output tokens: retry once with a smaller limit.
     if (/max_tokens|max_completion|output.*token|range/i.test(t)) res = await send(Math.min(maxTokens, cap, 8192));
     else throw new Error(`模型接口返回 400：${t.slice(0, 300)}`);
   }
   if (!res.ok) {
     const t = await res.text().catch(() => "");
+    const friendly = friendlyError(res.status, t);
+    if (friendly) throw new HttpError(502, friendly);
     const err = `模型接口返回 ${res.status}：${t.slice(0, 300)}`;
     if (res.status === 429 || res.status >= 500) throw new RetryableError(err);
     throw new Error(err);

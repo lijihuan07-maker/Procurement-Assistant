@@ -19,6 +19,9 @@ export const POST = route(async ({ req, db, user, params }) => {
 
   await db.delete(schema.packages).where(eq(schema.packages.projectId, project.id));
   await db.delete(schema.demandItems).where(eq(schema.demandItems.projectId, project.id));
+  // Image placeholders from Excel (=DISPIMG(...), [图片]) are not text the supplier should see.
+  const clean = (v: unknown) => String(v ?? "").replace(/=?_?x?l?f?n?\.?DISPIMG\([^)]*\)|\[图片\]/g, "").trim();
+  for (const it of out.items) for (const k of ["nameCn", "nameEn", "spec", "techReq", "specRef"] as const) (it as Record<string, unknown>)[k] = clean(it[k]);
   for (const [k, it] of out.items.entries()) {
     const [row] = await db.insert(schema.demandItems).values({
       projectId: project.id, seq: k + 1, no: String(it.no ?? k + 1), nameCn: String(it.nameCn || ""), nameEn: String(it.nameEn || ""),

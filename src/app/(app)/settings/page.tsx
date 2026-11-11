@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 import { sheetRows } from "@/lib/client/files";
-import { parseRfqTemplate } from "@/lib/client/excel";
+import { parseRfqTemplate, slimTemplate } from "@/lib/client/excel";
 import { useBusy, Busy, Drop, toast } from "@/components/ui";
 import type { RfqTemplate, EmailTemplate } from "@/db/schema";
 
@@ -32,7 +32,9 @@ export default function Settings() {
     const file = files[0]; if (!file) return;
     const r = await run("读取模板…", async () => {
       const t = parseRfqTemplate(await sheetRows(file), file.name);
-      const { prefix, nextNo, pad, payment, validity, currency, ...data } = t;
+      const { prefix, nextNo, pad, payment, validity, currency, ...rest } = t;
+      // Keep a slim copy of the file itself so exported RFQs reuse its exact layout and styles.
+      const data = { ...rest, fileB64: /\.xlsx$/i.test(file.name) ? await slimTemplate(await file.arrayBuffer()) : undefined };
       let res = await api<Data>("/api/company", { body: { kind: "rfq", name: file.name, data } });
       const patch: Record<string, unknown> = {};
       if (prefix && nextNo) Object.assign(patch, { rfqPrefix: prefix, rfqNextNo: nextNo, rfqPad: pad });

@@ -45,6 +45,22 @@ function Rfq({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
   const p = d.pkg;
   const [deadline, setDeadline] = useState(p.deadline || new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10));
   const nextNo = d.company.rfqPrefix + String(d.company.rfqNextNo).padStart(d.company.rfqPad, "0");
+  const [rfqNo, setRfqNo] = useState(nextNo);
+  const [title, setTitle] = useState({ cn: p.titleCn, en: p.titleEn });
+  const dirty = title.cn !== p.titleCn || title.en !== p.titleEn;
+  async function saveTitle(t = title) {
+    const r = await run("保存名称…", () => api<PackageData>(`/api/packages/${p.id}`, { method: "PATCH", body: { titleCn: t.cn.trim(), titleEn: t.en.trim() } }), "名称已保存");
+    if (r) setD(r);
+  }
+  async function suggest() {
+    const r = await run("AI 起名中…", () => api<{ titleCn: string; titleEn: string }>(`/api/packages/${p.id}/suggest-title`, { method: "POST" }));
+    if (r) setTitle({ cn: r.titleCn || title.cn, en: r.titleEn || title.en });
+  }
+  async function unlock() {
+    if (!window.confirm?.("解锁后询价单回到草稿状态，可以改编号、名称和内容；已生成但未发送的询价邮件会被删除。继续？")) return;
+    const r = await run("解锁中…", () => api<PackageData>(`/api/packages/${p.id}/unlock`, { method: "POST" }), "已解锁");
+    if (r) { setD(r); setTitle({ cn: r.pkg.titleCn, en: r.pkg.titleEn }); setRfqNo(r.company.rfqPrefix + String(r.company.rfqNextNo).padStart(r.company.rfqPad, "0")); }
+  }
   const placeholder = /\*{2,}/.test(d.company.paymentTerms);
   return (
     <section className="panel">
@@ -54,24 +70,38 @@ function Rfq({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
           <div className="actions">
             <button className="primary" onClick={async () => download(await rfqBlob(d), rfqFileName(d))}>下载询价单 Excel</button>
             <button onClick={onNext}>下一步：选供应商 →</button>
+            {p.status === "issued" && <button className="link" disabled={!!busy} onClick={unlock}>解锁修改</button>}
           </div>
         )}
       </div>
       {p.status === "draft" ? (
         <>
-          <p className="muted" style={{ margin: 0 }}>锁定后会生成询价单编号，询价内容随之固定，之后收到的报价都和这份内容对比。要调整需求项，请回到项目的“询价包”页。</p>
+          <p className="muted" style={{ margin: 0 }}>锁定后询价内容随之固定，之后收到的报价都和这份内容对比。要调整需求项，请回到项目的“询价包”页。</p>
           {placeholder && <div className="banner">公司设置里的付款条款还有 “***%” 这样的占位符，锁定前请先到“设置与模板”里改好。</div>}
+          <div className="fields" style={{ maxWidth: 860 }}>
+            <label className="field">询价单名称（中文）<input id="title-cn" value={title.cn} onChange={(e) => setTitle({ ...title, cn: e.target.value })} /></label>
+            <label className="field">询价单名称（英文，写进 Excel 标题）<input id="title-en" value={title.en} onChange={(e) => setTitle({ ...title, en: e.target.value })} /></label>
+          </div>
+          <div className="actions">
+            <button className="sm" disabled={!!busy} onClick={suggest}>AI 推荐名称</button>
+            <button className="sm primary" disabled={!!busy || !dirty || !title.cn.trim()} onClick={() => saveTitle()}>保存名称</button>
+            {dirty && <span className="small muted">名称还没保存</span>}
+          </div>
           <div className="fields" style={{ maxWidth: 640 }}>
-            <label className="field">询价单编号（锁定时生成）<input value={nextNo} readOnly className="mono" /></label>
+            <label className="field">询价单编号（可修改，默认按公司编号顺延）<input id="rfq-no" value={rfqNo} onChange={(e) => setRfqNo(e.target.value)} className="mono" /></label>
             <label className="field">报价截止日期<input id="deadline" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></label>
           </div>
           <div className="actions">
-            <button className="primary" disabled={!!busy || !d.lines.length} onClick={async () => { const r = await run("锁定中…", () => api<PackageData>(`/api/packages/${p.id}/issue`, { body: { deadline } }), "已锁定，可以下载询价单"); if (r) setD(r); }}>锁定并生成询价单编号</button>
+            <button className="primary" disabled={!!busy || !d.lines.length} onClick={async () => {
+              if (dirty) { const ok = await run("保存名称…", () => api<PackageData>(`/api/packages/${p.id}`, { method: "PATCH", body: { titleCn: title.cn.trim(), titleEn: title.en.trim() } })); if (!ok) return; }
+              const r = await run("锁定中…", () => api<PackageData>(`/api/packages/${p.id}/issue`, { body: { deadline, rfqNo: rfqNo.trim() } }), "已锁定，可以下载询价单"); if (r) setD(r);
+            }}>锁定询价单</button>
             <span className="small muted">模板：{d.rfqTemplate ? `沿用 ${d.rfqTemplate.fileName}` : "系统默认中英双语格式（可在“设置与模板”上传你们的询价单）"}</span>
           </div>
         </>
       ) : (
         <dl className="kv">
+          <dt>询价单名称</dt><dd>{p.snapshot?.title} / {p.snapshot?.titleEn}</dd>
           <dt>报价截止</dt><dd>{p.snapshot?.deadline}</dd>
           <dt>有效期</dt><dd>{p.snapshot?.validity}</dd>
           <dt>付款条款</dt><dd>{p.snapshot?.payment}</dd>
@@ -79,9 +109,9 @@ function Rfq({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
         </dl>
       )}
       <div className="tbl-wrap"><table>
-        <thead><tr><th>序号</th><th>物资名称</th><th>规格（含已确认的答案）</th><th>单位</th><th className="n">数量</th><th>技术要求</th><th>备注（发给供应商）</th></tr></thead>
+        <thead><tr><th>序号</th><th>物资名称</th><th>规格（含已确认的答案）</th><th>单位</th><th className="n">数量</th><th>技术要求</th></tr></thead>
         <tbody>{d.lines.map((l) => (
-          <tr key={l.no}><td className="mono">{l.no}</td><td style={{ minWidth: 170 }}>{l.name}</td><td className="small" style={{ minWidth: 180 }}>{l.spec}</td><td>{l.unit}</td><td className="n">{fmt(l.qty, Number.isInteger(l.qty) ? 0 : 2)}</td><td className="small">{l.techReq}</td><td className="small" style={{ whiteSpace: "pre-line" }}>{l.hint}</td></tr>
+          <tr key={l.no}><td className="mono">{l.no}</td><td style={{ minWidth: 170 }}>{l.name}</td><td className="small" style={{ minWidth: 180 }}>{l.spec}</td><td>{l.unit}</td><td className="n">{fmt(l.qty, Number.isInteger(l.qty) ? 0 : 2)}</td><td className="small">{l.techReq}</td></tr>
         ))}</tbody>
       </table></div>
     </section>

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { schema } from "@/db";
 import type { QuoteData } from "@/db/schema";
 import { route, body, ownPackage, HttpError } from "@/lib/http";
@@ -16,6 +16,7 @@ export const POST = route(async ({ req, db, user, params }) => {
   if (!pkg.snapshot) throw new HttpError(409, "请先锁定询价单，再上传报价");
   const b = await body<{ fileName: string; text: string; images?: AiImage[]; supplierId?: string }>(req);
   const s = pkg.snapshot;
+  await db.delete(schema.quotes).where(and(eq(schema.quotes.packageId, pkg.id), eq(schema.quotes.fileName, String(b.fileName || "")), eq(schema.quotes.status, "error")));
   let data: QuoteData;
   try {
     data = await askJson<QuoteData>("quote", quotePrompt(String(b.fileName || "报价"), String(b.text || "").slice(0, 120000), !!b.images?.length, {

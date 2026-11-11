@@ -195,5 +195,5 @@ export type QuoteData = {
   terms: { payment: string; delivery: string; leadTime: string; validity: string; priceAdjustment: string; other: string };
   lines: QuoteLine[]; missing: string[]; issues: string[];
 };
-export type RfqTemplate = { fileName: string; titleSuffix: string; headerLines: string[]; blocks: { label: string; values: string[] }[] };
+export type RfqTemplate = { fileName: string; titleSuffix: string; headerLines: string[]; blocks: { label: string; values: string[] }[]; fileB64?: string };
 export type EmailTemplate = { subject: string; body: string };
