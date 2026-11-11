@@ -11,7 +11,7 @@ export const maxDuration = 300;
 
 const norm = (s: string) => s.toLowerCase().replace(/co\.?|ltd\.?|llc|company|est\.?|trading|establishment|[^a-z0-9一-鿿]/g, "");
 
-export const POST = route(async ({ req, db, user, params }) => {
+export const POST = route(async ({ req, db, user, params, lang }) => {
   const { pkg } = await ownPackage(db, user, params.id);
   if (!pkg.snapshot) throw new HttpError(409, "请先锁定询价单，再上传报价");
   const b = await body<{ fileName: string; text: string; images?: AiImage[]; supplierId?: string }>(req);
@@ -21,7 +21,7 @@ export const POST = route(async ({ req, db, user, params }) => {
   try {
     data = await askJson<QuoteData>("quote", quotePrompt(String(b.fileName || "报价"), String(b.text || "").slice(0, 120000), !!b.images?.length, {
       lines: s.lines.map((l) => ({ no: l.no, name: l.name, spec: l.spec, unit: l.unit, qty: l.qty })), terms: snapshotTerms(s), currency: s.currency, vatRate: s.vatRate,
-    }), { images: b.images, maxTokens: 16000, mockKey: b.fileName });
+    }), { images: b.images, maxTokens: 16000, mockKey: b.fileName, lang });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     await db.insert(schema.quotes).values({ packageId: pkg.id, fileName: String(b.fileName || ""), status: "error", error: message, data: emptyQuote(String(b.fileName || "")) });

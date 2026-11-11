@@ -3,26 +3,39 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { getUser, type SessionUser } from "./auth";
 import { getDb, schema, type DB } from "@/db";
+import { pickLang, translate, LANG_COOKIE, type Lang, type Vars } from "./i18n";
 
-export class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }
+/** Error shown to the user. The message is a Chinese source string with {placeholders}; it is translated per request. */
+export class HttpError extends Error { constructor(public status: number, message: string, public vars?: Vars) { super(message); } }
+
+export function langOf(req: Request): Lang {
+  const c = (req.headers.get("cookie") || "").match(new RegExp(`(?:^|;\\s*)${LANG_COOKIE}=([^;]+)`))?.[1];
+  return pickLang(c, req.headers.get("accept-language"));
+}
+/** JSON error response in the caller's language. */
+export function fail(req: Request, status: number, message: string, vars?: Vars) {
+  const lang = langOf(req);
+  const v = vars && Object.fromEntries(Object.entries(vars).map(([k, x]) => [k, typeof x === "string" ? translate(lang, x) : x]));
+  return json({ error: translate(lang, message, v) }, status);
+}
 
 export function json(data: unknown, status = 200) { return NextResponse.json(data, { status }); }
 
 /** Wraps a route handler: requires login, maps errors to JSON. */
-export function route<C = unknown>(fn: (ctx: { req: Request; user: SessionUser; db: DB; params: Record<string, string> }) => Promise<unknown>) {
+export function route<C = unknown>(fn: (ctx: { req: Request; user: SessionUser; db: DB; params: Record<string, string>; lang: Lang }) => Promise<unknown>) {
   return async (req: Request, context: { params: Promise<Record<string, string>> } | C) => {
     try {
       const user = await getUser();
       if (!user) throw new HttpError(401, "请先登录");
       const db = await getDb();
       const params = (context as { params?: Promise<Record<string, string>> })?.params ? await (context as { params: Promise<Record<string, string>> }).params : {};
-      const out = await fn({ req, user, db, params });
+      const out = await fn({ req, user, db, params, lang: langOf(req) });
       return out instanceof Response ? out : json(out ?? { ok: true });
     } catch (e) {
       const status = e instanceof HttpError ? e.status : 500;
       const message = e instanceof Error ? e.message : String(e);
       if (status === 500) console.error(e);
-      return json({ error: message }, status);
+      return fail(req, status, message, e instanceof HttpError ? e.vars : undefined);
     }
   };
 }

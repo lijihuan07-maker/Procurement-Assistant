@@ -1,7 +1,12 @@
 import { checklistText, CATEGORIES } from "./checklist";
 
-export function demandPrompt(content: string, hasImages: boolean) {
-  return `下面是工程部提交的物资需用计划（需求清单）${hasImages ? "，附图是清单页面" : "的内容"}。请提取全部物资项，判断材料类别，并按“材料澄清参数清单”检查每一项缺了哪些必须明确的参数，生成需要工程部确认的问题。
+export function demandPrompt(content: string, hasImages: boolean, chunk?: { part: number; parts: number; context: string }) {
+  const rowIds = /^[RL]\d+\|/m.test(content);
+  const partNote = chunk && chunk.parts > 1
+    ? `\n这份清单较长，分成 ${chunk.parts} 部分并行处理，现在是第 ${chunk.part} 部分。${chunk.context ? "“表头参考”只用来理解各列含义，不要提取其中的物资；" : ""}只提取“本部分内容”里的物资项。本部分最后一行如果明显没写完，照常提取。`
+    : "";
+  const body = chunk?.context ? `表头参考（不要提取）：\n${chunk.context}\n\n本部分内容：\n${content}` : content ? "清单内容：\n" + content : "";
+  return `下面是工程部提交的物资需用计划（需求清单）${hasImages ? "，附图是清单页面" : "的内容"}。${rowIds ? "每行开头的 R12| 或 L12| 是行号。" : ""}${partNote}请提取全部物资项，判断材料类别，并按“材料澄清参数清单”检查每一项缺了哪些必须明确的参数，生成需要工程部确认的问题。
 
 材料澄清参数清单：
 ${checklistText()}
@@ -10,13 +15,13 @@ ${checklistText()}
 
 只输出一个 JSON 对象：
 {"project":"项目名称，没有就空字符串","department":"请购部门",
-"items":[{"no":"需求序号","nameCn":"中文名称","nameEn":"英文名称","spec":"规格型号","unit":"单位","qty":390500,"dateRequired":"需用时间","techReq":"技术要求","specRef":"规范章节号，如 32 14 13.13；没有就空字符串","category":"材料类别","issues":["数据问题：名称和规格矛盾、疑似重复、单位不明确、缺数量等"],"questions":[{"question":"中文问题","questionEn":"English question","options":["可选项1","可选项2"]}]}]}
+"items":[{"row":"该物资所在行的行号，如 R12；没有行号就空字符串","no":"需求序号","nameCn":"中文名称","nameEn":"英文名称","spec":"规格型号","unit":"单位","qty":390500,"dateRequired":"需用时间","techReq":"技术要求","specRef":"规范章节号，如 32 14 13.13；没有就空字符串","category":"材料类别","issues":["数据问题：名称和规格矛盾、疑似重复、单位不明确、缺数量等"],"questions":[{"question":"中文问题","questionEn":"English question","options":["可选项1","可选项2"]}]}]}
 规则：
 1. items 按清单原顺序输出全部物资项，不能遗漏；qty 为纯数字；规格里的换行改成空格。
 2. 忽略 =DISPIMG(...)、[图片] 之类的图片占位。
 3. questions 只针对清单里确实没写清楚、而参数清单要求明确的参数，每个问题尽量给 2–4 个可选项；已经写清楚的不要问。不在参数清单里的类别，只问影响报价的关键缺项。
 4. 没有问题就给空数组。
-${content ? "清单内容：\n" + content : ""}`;
+${body}`;
 }
 
 export function clarifyPrompt(items: { id: string; name: string; spec: string; techReq: string; questions: { id: string; question: string; options: string[] }[]; excerpts: { sectionNo: string; title: string; pages: string; text: string }[] }[]) {

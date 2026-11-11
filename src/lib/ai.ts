@@ -9,6 +9,12 @@ export type { AiImage };
 
 const SYSTEM = "你是严谨的工程采购助理。只输出要求的 JSON 对象，不要输出其他文字或代码块标记。数字不带千分位逗号。";
 
+/** Appended for users who don't work in Chinese: free text comes back in their language, enumerations stay as defined. */
+const LANG_NAMES: Record<string, string> = { en: "English", fr: "French", es: "Spanish", ru: "Russian", ar: "Arabic" };
+const langNote = (name: string) => `
+
+OUTPUT LANGUAGE: the user works in ${name}. Write every human-readable free-text value (questions, options, answers, issues, reasons, notes, summaries, titles, details, actions, conversion notes, deviations) in ${name}. Where a format has both "question" and "questionEn", put ${name} in "question" and English in "questionEn". Keep company names, product names and specifications as written in the source. JSON keys and enumerated values defined above (such as levels 高/中/低, material category names, kind values) must stay exactly as defined. Fields explicitly meant to be Chinese (nameCn, titleCn) may stay Chinese; English fields (nameEn, titleEn) stay English.`;
+
 /**
  * Which model service to use:
  * - AI_PROVIDER=openai : any OpenAI-compatible API (阿里云百炼/通义千问, DeepSeek, Kimi, 智谱…) via AI_BASE_URL + AI_API_KEY
@@ -95,13 +101,13 @@ async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens
     if (friendly) throw new HttpError(502, friendly);
     // Some models accept fewer output tokens: retry once with a smaller limit.
     if (/max_tokens|max_completion|output.*token|range/i.test(t)) res = await send(Math.min(maxTokens, cap, 8192));
-    else throw new Error(`模型接口返回 400：${t.slice(0, 300)}`);
+    else throw new Error(`HTTP 400: ${t.slice(0, 300)}`);
   }
   if (!res.ok) {
     const t = await res.text().catch(() => "");
     const friendly = friendlyError(res.status, t);
     if (friendly) throw new HttpError(502, friendly);
-    const err = `模型接口返回 ${res.status}：${t.slice(0, 300)}`;
+    const err = `HTTP ${res.status}: ${t.slice(0, 300)}`;
     if (res.status === 429 || res.status >= 500) throw new RetryableError(err);
     throw new Error(err);
   }
@@ -132,7 +138,8 @@ async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens
 }
 
 /** Ask the configured model for a JSON object. Retries once on transient errors or invalid JSON. */
-export async function askJson<T>(task: string, prompt: string, opts: { images?: AiImage[]; maxTokens?: number; mockKey?: string; webSearch?: boolean } = {}): Promise<T> {
+export async function askJson<T>(task: string, prompt0: string, opts: { images?: AiImage[]; maxTokens?: number; mockKey?: string; webSearch?: boolean; lang?: string } = {}): Promise<T> {
+  const prompt = opts.lang && LANG_NAMES[opts.lang] ? prompt0 + langNote(LANG_NAMES[opts.lang]) : prompt0;
   if (process.env.AI_MOCK === "1") return (await mock(task, opts.mockKey)) as T;
   const call = provider() === "openai" ? callOpenAiCompatible : callAnthropic;
   let lastErr: unknown;
@@ -147,5 +154,5 @@ export async function askJson<T>(task: string, prompt: string, opts: { images?: 
     }
   }
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
-  throw new HttpError(502, "AI 调用失败：" + msg);
+  throw new HttpError(502, "AI 调用失败：{msg}", { msg });
 }

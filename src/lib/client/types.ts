@@ -1,3 +1,4 @@
+import type { Msg } from "@/lib/i18n";
 import type { Flag, QuoteData, RfqLine, RfqSnapshot, Overrides, Award, RfqTemplate, EmailTemplate } from "@/db/schema";
 
 export type Question = { id: string; itemId: string; question: string; questionEn: string; options: string[]; answer: string; status: string; specQuote: string };
@@ -19,5 +20,5 @@ export type PackageData = {
   lines: RfqLine[]; quotes: QuoteRec[]; invites: Invite[];
   rfqTemplate: RfqTemplate | null; emailTemplate: EmailTemplate;
   history: Record<string, { supplierName: string; unitPrice: number; unit: string; currency: string; date: string; source: string } | null>;
-  recommendations: { supplier: Supplier; reasons: string[]; score: number; match: boolean; isNew: boolean }[];
+  recommendations: { supplier: Supplier; reasons: Msg[]; score: number; match: boolean; isNew: boolean }[];
 };

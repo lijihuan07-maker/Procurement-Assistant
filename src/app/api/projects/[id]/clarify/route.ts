@@ -10,7 +10,7 @@ export const maxDuration = 300;
 
 type Out = { answers?: { questionId: string; answer: string; specQuote: string }[]; specUpdates?: { itemId: string; techReq: string }[] };
 
-export const POST = route(async ({ db, user, params }) => {
+export const POST = route(async ({ db, user, params, lang }) => {
   await ownProject(db, user, params.id);
   const docs = await db.select({ id: schema.specDocs.id }).from(schema.specDocs).where(eq(schema.specDocs.projectId, params.id));
   if (!docs.length) throw new HttpError(400, "请先上传技术规格书");
@@ -35,7 +35,7 @@ export const POST = route(async ({ db, user, params }) => {
   let answered = 0;
   for (let i = 0; i < work.length; i += 6) {
     const batch = work.slice(i, i + 6);
-    const out = await askJson<Out>("clarify", clarifyPrompt(batch), { maxTokens: 8000, mockKey: String(i) });
+    const out = await askJson<Out>("clarify", clarifyPrompt(batch), { maxTokens: 8000, mockKey: String(i), lang });
     for (const a of out.answers || []) {
       const q = qs.find((x) => x.id === a.questionId);
       if (!q || !a.answer) continue;

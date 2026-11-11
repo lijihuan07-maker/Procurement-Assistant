@@ -60,30 +60,34 @@ export function compute(lines: RfqLine[], quotes: QuoteRow[], ov: Overrides, vat
   return { rows, sup, qs, combo };
 }
 
-export function ruleFlags(c: ReturnType<typeof compute>, quotes: QuoteRow[], vatRate: number): Flag[] {
+type Tr = (s: string, v?: Record<string, string | number>) => string;
+const plain: Tr = (s, v) => (v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? String(v[k]) : m)) : s);
+
+/** Checks that need no AI. Text goes through tr so it shows in the user's language; level/category stay as keys. */
+export function ruleFlags(c: ReturnType<typeof compute>, quotes: QuoteRow[], vatRate: number, tr: Tr = plain): Flag[] {
   const out: Flag[] = [];
   const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   quotes.forEach((q) => {
-    if (q.status === "error") out.push({ level: "中", category: "识别失败", title: `${q.fileName} 没能识别`, detail: q.error || "", action: "检查文件后重新上传。" });
-    else if (q.data.isBlank) out.push({ level: "信息", category: "文件", title: `${q.data.supplier || q.fileName} 没有填价格`, detail: "单价为空或全为 0，未计入比价。", action: "确认是否传错了文件。" });
+    if (q.status === "error") out.push({ level: "中", category: "识别失败", title: tr("{f} 没能识别", { f: q.fileName }), detail: q.error || "", action: tr("检查文件后重新上传。") });
+    else if (q.data.isBlank) out.push({ level: "信息", category: "文件", title: tr("{s} 没有填价格", { s: q.data.supplier || q.fileName }), detail: tr("单价为空或全为 0，未计入比价。"), action: tr("确认是否传错了文件。") });
   });
   c.sup.forEach((s, i) => {
     const n = c.rows.length;
     if (s.covered < n) {
       const miss = c.rows.filter((r) => !r.cells[i]).map((r) => r.line.no);
-      out.push({ level: "中", category: "缺项", title: `${s.q.data.supplier} 只报了 ${s.covered}/${n} 项`, detail: `未报序号：${miss.join("、")}。总价不能直接和报全的供应商比较。`, action: "追问缺项价格，或按单项比较。" });
+      out.push({ level: "中", category: "缺项", title: tr("{s} 只报了 {a}/{b} 项", { s: s.q.data.supplier, a: s.covered, b: n }), detail: tr("未报序号：{list}。总价不能直接和报全的供应商比较。", { list: miss.join(", ") }), action: tr("追问缺项价格，或按单项比较。") });
     }
     const d = s.q.data;
     if (s.own > 0) {
       if (Number(d.statedTotalExVat) > 0 && Math.abs(Number(d.statedTotalExVat) / s.own - 1) > 0.01)
-        out.push({ level: "中", category: "金额核对", title: `${d.supplier} 自报合计与明细不符`, detail: `报价单写不含税合计 ${fmt(Number(d.statedTotalExVat))}，按明细重算为 ${fmt(s.own)}。`, action: "以重算结果为准，并请供应商确认。" });
+        out.push({ level: "中", category: "金额核对", title: tr("{s} 自报合计与明细不符", { s: d.supplier }), detail: tr("报价单写不含税合计 {a}，按明细重算为 {b}。", { a: fmt(Number(d.statedTotalExVat)), b: fmt(s.own) }), action: tr("以重算结果为准，并请供应商确认。") });
       else if (!(Number(d.statedTotalExVat) > 0) && Number(d.statedTotalInclVat) > 0 && Math.abs(Number(d.statedTotalInclVat) / (s.own * (1 + vatRate)) - 1) > 0.01)
-        out.push({ level: "中", category: "金额核对", title: `${d.supplier} 自报合计与明细不符`, detail: `报价单写含税合计 ${fmt(Number(d.statedTotalInclVat))}，按明细重算含税应为 ${fmt(s.own * (1 + vatRate))}。`, action: "以重算结果为准，并检查合计公式。" });
+        out.push({ level: "中", category: "金额核对", title: tr("{s} 自报合计与明细不符", { s: d.supplier }), detail: tr("报价单写含税合计 {a}，按明细重算含税应为 {b}。", { a: fmt(Number(d.statedTotalInclVat)), b: fmt(s.own * (1 + vatRate)) }), action: tr("以重算结果为准，并检查合计公式。") });
     }
   });
   const wide = c.rows.filter((r) => r.spread != null && r.spread > 0.3);
-  if (wide.length) out.push({ level: "低", category: "价差", title: `${wide.length} 项最高价比最低价高出 30% 以上`, detail: wide.map((r) => `序号${r.line.no} ${(r.spread! * 100).toFixed(1)}%`).join("，"), action: "核对是否规格理解不同，或重点议价。" });
-  return out.map((f) => ({ ...f, source: "规则" }));
+  if (wide.length) out.push({ level: "低", category: "价差", title: tr("{n} 项最高价比最低价高出 30% 以上", { n: wide.length }), detail: wide.map((r) => `#${r.line.no} ${(r.spread! * 100).toFixed(1)}%`).join(", "), action: tr("核对是否规格理解不同，或重点议价。") });
+  return out.map((f) => ({ ...f, source: tr("规则") }));
 }
 
 export const LEVEL_ORDER: Record<string, number> = { "高": 0, "中": 1, "低": 2, "信息": 3 };

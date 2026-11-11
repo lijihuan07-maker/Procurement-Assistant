@@ -1,4 +1,5 @@
 import "server-only";
+import { msg, type Msg } from "./i18n";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { schema, type DB } from "@/db";
 import type { RfqLine, RfqTemplate, EmailTemplate } from "@/db/schema";
@@ -50,12 +51,12 @@ export async function recommend(db: DB, companyId: string, categories: string[],
     const sent = invited.filter((i) => i.supplierId === s.id && i.status === "sent");
     const replied = sent.filter((i) => quoted.some((q) => q.supplierId === s.id && q.packageId === i.packageId));
     const last = mine.map((r) => r.date).sort().at(-1) || "";
-    const reasons: string[] = [];
+    const reasons: Msg[] = [];
     const isNew = !recs.some((r) => r.supplierName === s.name);
-    if (mine.length) reasons.push(`同类采购 ${mine.length} 次${last ? "，最近 " + last : ""}`);
-    else if (catMatch) reasons.push(isNew ? (s.source === "web" ? "网上找到的本地供应商，还没合作过" : "类别匹配，还没合作过") : "类别匹配，暂无同类成交记录");
-    if (sent.length) reasons.push(`报价回复 ${replied.length}/${sent.length}`);
-    if (s.rating) reasons.push(`评分 ${s.rating}`);
+    if (mine.length) reasons.push(last ? msg("同类采购 {n} 次，最近 {date}", { n: mine.length, date: last }) : msg("同类采购 {n} 次", { n: mine.length }));
+    else if (catMatch) reasons.push(msg(isNew ? (s.source === "web" ? "网上找到的本地供应商，还没合作过" : "类别匹配，还没合作过") : "类别匹配，暂无同类成交记录"));
+    if (sent.length) reasons.push(msg("报价回复 {a}/{b}", { a: replied.length, b: sent.length }));
+    if (s.rating) reasons.push(msg("评分 {n}", { n: s.rating }));
     const score = mine.length * 3 + (catMatch ? 2 : 0) + (sent.length ? (replied.length / sent.length) * 2 : 0) + (s.rating || 0) * 0.5 + (last ? 0.5 : 0);
     return { supplier: s, score, reasons, match: mine.length > 0 || !!catMatch, isNew };
   }).sort((a, b) => b.score - a.score);

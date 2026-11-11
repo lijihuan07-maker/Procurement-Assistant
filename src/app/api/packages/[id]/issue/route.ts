@@ -19,7 +19,7 @@ export const POST = route(async ({ req, db, user, params }) => {
   // RFQ numbers must be unique within the company.
   const dup = await db.select({ id: schema.packages.id }).from(schema.packages).innerJoin(schema.projects, eq(schema.packages.projectId, schema.projects.id))
     .where(and(eq(schema.projects.companyId, company.id), eq(schema.packages.rfqNo, rfqNo), ne(schema.packages.id, pkg.id)));
-  if (dup.length) throw new HttpError(409, `询价单编号 ${rfqNo} 已经用过了`);
+  if (dup.length) throw new HttpError(409, "询价单编号 {no} 已经用过了", { no: rfqNo });
   // Keep the counter ahead of any number issued with the company prefix.
   if (rfqNo.startsWith(company.rfqPrefix)) {
     const n = Number(rfqNo.slice(company.rfqPrefix.length));

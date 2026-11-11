@@ -9,13 +9,13 @@ export const maxDuration = 300;
 
 type Out = { packages: { code: string; titleEn: string; titleCn: string; supplierType: string; reason: string; items: string[] }[]; hints?: { no: string; quoteHint: string }[] };
 
-export const POST = route(async ({ db, user, params }) => {
+export const POST = route(async ({ db, user, params, lang }) => {
   const project = await ownProject(db, user, params.id);
   // Draft packages are rebuilt; items already in issued packages stay where they are.
   await db.delete(schema.packages).where(and(eq(schema.packages.projectId, project.id), eq(schema.packages.status, "draft")));
   const items = await db.select().from(schema.demandItems).where(and(eq(schema.demandItems.projectId, project.id), isNull(schema.demandItems.packageId))).orderBy(asc(schema.demandItems.seq));
   if (!items.length) throw new HttpError(400, "没有待分包的需求项");
-  const out = await askJson<Out>("split", splitPrompt(items.map((i) => ({ no: i.no, nameCn: i.nameCn, nameEn: i.nameEn, spec: i.spec, unit: i.unit, qty: i.qty, category: i.category }))), { maxTokens: 12000 });
+  const out = await askJson<Out>("split", splitPrompt(items.map((i) => ({ no: i.no, nameCn: i.nameCn, nameEn: i.nameEn, spec: i.spec, unit: i.unit, qty: i.qty, category: i.category }))), { maxTokens: 12000, lang });
   const existing = await db.select({ code: schema.packages.code }).from(schema.packages).where(and(eq(schema.packages.projectId, project.id), ne(schema.packages.status, "draft")));
   let n = existing.reduce((m, p) => Math.max(m, Number(p.code.replace(/\D/g, "")) || 0), 0);
   for (const p of out.packages || []) {

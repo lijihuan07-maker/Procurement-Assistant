@@ -13,10 +13,10 @@ const s = (v: unknown) => (v == null ? "" : String(v).trim());
 const junk = (n: string) => n.length < 3 || /^[\d\s.,%+\-()/:]+$/.test(n) || /^(tel|fax|mob|phone|email|e-mail|电话|邮箱|联系人)\b/i.test(n) || /单价|总价|合计|金额|评标|供应商名称|付款|交货|days|total|price|amount/i.test(n);
 
 /** Read any supplier-related file with AI and return a preview. Nothing is saved here. */
-export const POST = route(async ({ req }) => {
+export const POST = route(async ({ req, lang }) => {
   const b = await body<{ fileName: string; text: string; images?: AiImage[] }>(req);
   const out = await askJson<{ fileKind?: string; suppliers?: Partial<Sup>[]; prices?: Partial<Price>[] }>(
-    "suppliers", supplierImportPrompt(s(b.fileName), s(b.text).slice(0, 120000), !!b.images?.length), { images: b.images, maxTokens: 16000, mockKey: b.fileName });
+    "suppliers", supplierImportPrompt(s(b.fileName), s(b.text).slice(0, 120000), !!b.images?.length), { images: b.images, maxTokens: 16000, mockKey: b.fileName, lang });
   const seen = new Set<string>();
   const suppliers: Sup[] = [];
   for (const x of out.suppliers || []) {

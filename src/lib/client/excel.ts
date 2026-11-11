@@ -1,6 +1,10 @@
 "use client";
 import type { RfqLine, RfqTemplate, Flag, QuoteData } from "@/db/schema";
 import type { compute } from "@/lib/compare";
+import { t as tr, lang } from "@/lib/i18n/client";
+
+/** Bilingual label for Chinese users ("English\n（中文）"); English only otherwise. */
+const bi = (en: string, zh: string, paren = true) => (lang() === "zh" ? `${en}\n${paren ? `（${zh}）` : zh}` : en);
 
 type ExcelJSNS = typeof import("exceljs");
 async function lib(): Promise<ExcelJSNS> { const m = await import("exceljs"); return ((m as unknown as { default?: ExcelJSNS }).default ?? m) as ExcelJSNS; }
@@ -18,7 +22,7 @@ const estLines = (t: unknown, w: number) => String(t ?? "").split("\n").reduce((
 export function parseRfqTemplate(rows: unknown[][], fileName: string): RfqTemplate & { prefix: string; nextNo: number | null; pad: number; payment: string; validity: string; currency: string } {
   const cellStr = (r: unknown[] | undefined) => String((r || []).find((v) => v != null && String(v).trim() !== "") ?? "").trim();
   const hdr = rows.findIndex((r) => r && /^item/i.test(String(r[0] ?? "").trim()));
-  if (hdr < 0) throw new Error("没有找到以 “Item” 开头的明细表头行，请上传按你们格式填写的询价单");
+  if (hdr < 0) throw new Error(tr("没有找到以 “Item” 开头的明细表头行，请上传按你们格式填写的询价单"));
   const t = { fileName, headerLines: [] as string[], blocks: [] as { label: string; values: string[] }[], titleSuffix: "", prefix: "", nextNo: null as number | null, pad: 3, payment: "", validity: "", currency: "" };
   const m = cellStr(rows[0]).match(/-\s+(.+)$/); if (m) t.titleSuffix = m[1].trim();
   for (let i = 1; i < hdr; i++) {
@@ -51,14 +55,14 @@ const DEFAULT_TERMS = [
   "7. Rejected materials shall be replaced at the Supplier's cost within 3 days.",
   "8. Risk of loss and damage remains with the Supplier until the materials are delivered and accepted on site.",
 ];
-const DEFAULT_BLOCKS = [
-  { label: "INCOTERMS\n（贸易术语）", values: ["DDP – delivered to project site"] },
-  { label: "Delivery location\n（交货地点）", values: ["Project site; the exact location will be given in the Buyer's written notice."] },
-  { label: "Delivery period\n（交货期）", values: ["As per the Buyer's written notice."] },
-  { label: "Quotation Deadline\n（报价截止日期）", values: [] },
-  { label: "Valid Period\n（报价有效期）", values: [] },
-  { label: "Terms of supply\n（供应条款）", values: DEFAULT_TERMS },
-  { label: "Terms of payment\n（支付条款）", values: [] },
+const DEFAULT_BLOCKS = () => [
+  { label: bi("INCOTERMS", "贸易术语"), values: ["DDP – delivered to project site"] },
+  { label: bi("Delivery location", "交货地点"), values: ["Project site; the exact location will be given in the Buyer's written notice."] },
+  { label: bi("Delivery period", "交货期"), values: ["As per the Buyer's written notice."] },
+  { label: bi("Quotation Deadline", "报价截止日期"), values: [] },
+  { label: bi("Valid Period", "报价有效期"), values: [] },
+  { label: bi("Terms of supply", "供应条款"), values: DEFAULT_TERMS },
+  { label: bi("Terms of payment", "支付条款"), values: [] },
 ];
 const QUOTE_NOTES = [
   "1. Quote every item in the unit stated in this RFQ. If you price in another unit (e.g. per m² instead of per piece), state the unit price, the unit and the conversion factor in the Remark column.",
@@ -81,10 +85,10 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   const suffix = tpl?.titleSuffix || d.project || "";
   line(`RFQ for ${d.titleEn || d.titleCn}${suffix ? " - " + suffix : ""}`, { ...XB, size: 13 }, 34);
   (tpl?.headerLines?.length ? tpl.headerLines : [d.project ? `Project Name: ${d.project}` : ""]).filter(Boolean).forEach((s) => line(s));
-  line(`Request: ${d.titleEn || ""}${d.titleCn ? "（" + d.titleCn + "）" : ""}`, XB);
+  line(`Request: ${d.titleEn || ""}${d.titleCn && lang() === "zh" ? "（" + d.titleCn + "）" : ""}`, XB);
   line(`Request No.: ${d.rfqNo}`, XB);
   line("BOQ:");
-  const hdr = ["Item\n(序号)", "Description\n（内容）", null, "Unit\n（单位）", "Qty\n（数量）", `Unit Price/${d.currency}\n（不含税单价）`, `VAT (${vatPct}%)\n（税率）`, `U.Price with VAT/${d.currency}\n（含税单价）`, `VAT Amount/${d.currency}\n（税额）`, `Total Amount/${d.currency}\n（含税合价）`, "Technical Requirement\n(技术质量要求)", "Remark\n（备注）"];
+  const hdr = [bi("Item", "序号"), bi("Description", "内容"), null, bi("Unit", "单位"), bi("Qty", "数量"), bi(`Unit Price/${d.currency}`, "不含税单价"), bi(`VAT (${vatPct}%)`, "税率"), bi(`U.Price with VAT/${d.currency}`, "含税单价"), bi(`VAT Amount/${d.currency}`, "税额"), bi(`Total Amount/${d.currency}`, "含税合价"), bi("Technical Requirement", "技术质量要求"), bi("Remark", "备注")];
   hdr.forEach((v, i) => { const c = ws.getCell(r, i + 1); c.value = v; c.font = XB; c.alignment = { wrapText: true, vertical: "middle", horizontal: "center" }; c.fill = fill("FFDCEBEE"); c.border = BOX; });
   ws.mergeCells(r, 2, r, 3); ws.getRow(r).height = 44; r++;
   const first = r;
@@ -101,7 +105,7 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   });
   const last = r - 1;
   for (let i = 1; i <= 12; i++) ws.getCell(r, i).border = BOX;
-  ws.getCell(r, 1).value = "In Total（含税合计）"; ws.getCell(r, 1).font = XB; ws.getCell(r, 1).alignment = { horizontal: "right", vertical: "middle" }; ws.mergeCells(r, 1, r, 9);
+  ws.getCell(r, 1).value = lang() === "zh" ? "In Total（含税合计）" : "In Total"; ws.getCell(r, 1).font = XB; ws.getCell(r, 1).alignment = { horizontal: "right", vertical: "middle" }; ws.mergeCells(r, 1, r, 9);
   const tc = ws.getCell(r, 10); tc.value = { formula: `SUM(J${first}:J${last})` } as never; tc.font = XB; tc.numFmt = "#,##0.00";
   ws.getRow(r).height = 24; r++;
   const block = (label: string, values: string[]) => {
@@ -116,7 +120,7 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   };
   const fmtDate = (s: string) => (s ? s.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, "$1.$2.$3") : "");
   const seen = { deadline: false, valid: false, pay: false };
-  (tpl?.blocks?.length ? tpl.blocks : DEFAULT_BLOCKS).forEach((b) => {
+  (tpl?.blocks?.length ? tpl.blocks : DEFAULT_BLOCKS()).forEach((b) => {
     const L = b.label;
     if (/deadline|截止/i.test(L)) { block(L, [fmtDate(d.deadline)]); seen.deadline = true; }
     else if (/valid|有效/i.test(L)) { block(L, [d.validity]); seen.valid = true; }
@@ -125,11 +129,11 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
     else if (/supplier|signature|stamp|date of quotation|供应商|签字|报价日期/i.test(L)) return;
     else block(L, b.values);
   });
-  if (!seen.deadline) block("Quotation Deadline\n（报价截止日期）", [fmtDate(d.deadline)]);
-  if (!seen.valid) block("Valid Period\n（报价有效期）", [d.validity]);
-  if (!seen.pay) block("Terms of payment\n（支付条款）", [d.payment]);
-  block("Quotation Instructions\n（报价说明）", QUOTE_NOTES);
-  ["Supplier\n（供应商公司名称）", "Signature & Stamp\n（签字盖章）", "Date of Quotation\n（报价日期）"].forEach((l) => { block(l, [""]); ws.getRow(r - 1).height = 30; });
+  if (!seen.deadline) block(bi("Quotation Deadline", "报价截止日期"), [fmtDate(d.deadline)]);
+  if (!seen.valid) block(bi("Valid Period", "报价有效期"), [d.validity]);
+  if (!seen.pay) block(bi("Terms of payment", "支付条款"), [d.payment]);
+  block(bi("Quotation Instructions", "报价说明"), QUOTE_NOTES);
+  [bi("Supplier", "供应商公司名称"), bi("Signature & Stamp", "签字盖章"), bi("Date of Quotation", "报价日期")].forEach((l) => { block(l, [""]); ws.getRow(r - 1).height = 30; });
   return new Blob([await wb.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
@@ -171,7 +175,7 @@ async function buildFromTemplate(d: RfqDoc, fileB64: string): Promise<Blob> {
     if (!hdr && /^item/i.test(a)) hdr = r;
     else if (hdr && !total && /in\s*total/i.test(a)) total = r;
   }
-  if (!hdr) throw new Error("模板里没有找到以 “Item” 开头的表头行");
+  if (!hdr) throw new Error(tr("模板里没有找到以 “Item” 开头的表头行"));
   const proto = hdr + 1;
   if (!total) total = proto + 1;
   const merges: string[] = ((sw.model as unknown as { merges?: string[] }).merges) || [];
@@ -273,26 +277,26 @@ export async function buildCompare(o: { c: C; rfqNo: string; title: string; proj
   const ExcelJS = await lib();
   const { c } = o;
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet("比价汇总", { views: [{ state: "frozen", xSplit: 3, ySplit: 5 }], pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const ws = wb.addWorksheet(tr("比价汇总"), { views: [{ state: "frozen", xSplit: 3, ySplit: 5 }], pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
   const nS = c.qs.length, FIX = 7, tail = FIX + nS * 3 + 1, lastCol = tail + 3;
   [5, 24, 18, 7, 12, 7, 12].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   c.qs.forEach((_, s) => { ws.getColumn(FIX + 1 + s * 3).width = 26; ws.getColumn(FIX + 2 + s * 3).width = 11; ws.getColumn(FIX + 3 + s * 3).width = 15; });
   ws.getColumn(tail).width = 11; ws.getColumn(tail + 1).width = 16; ws.getColumn(tail + 2).width = 10; ws.getColumn(tail + 3).width = 22;
-  ws.mergeCells(1, 1, 1, lastCol); ws.getCell(1, 1).value = `比价表  ${o.rfqNo}  ${o.title}`; ws.getCell(1, 1).font = { ...XB, size: 14 }; ws.getRow(1).height = 24;
-  ws.mergeCells(2, 1, 2, lastCol); ws.getCell(2, 1).value = `项目：${o.project} ｜ 币种：${o.currency} ｜ 单价均为不含税，合价 = 比价数量 × 单价（按询价数量折算） ｜ 导出日期：${new Date().toISOString().slice(0, 10)}`; ws.getCell(2, 1).font = { ...XF, size: 9, color: { argb: "FF595959" } };
-  ws.getCell(3, 1).value = "VAT 税率"; ws.getCell(3, 1).font = XB; ws.getCell(3, 3).value = o.vatRate; ws.getCell(3, 3).numFmt = "0%"; ws.getCell(3, 3).font = XBLUE; ws.getCell(3, 3).fill = fill("FFFFFF00");
+  ws.mergeCells(1, 1, 1, lastCol); ws.getCell(1, 1).value = `${tr("比价表")}  ${o.rfqNo}  ${o.title}`; ws.getCell(1, 1).font = { ...XB, size: 14 }; ws.getRow(1).height = 24;
+  ws.mergeCells(2, 1, 2, lastCol); ws.getCell(2, 1).value = tr("项目：{p} ｜ 币种：{c} ｜ 单价均为不含税，合价 = 比价数量 × 单价（按询价数量折算） ｜ 导出日期：{d}", { p: o.project, c: o.currency, d: new Date().toISOString().slice(0, 10) }); ws.getCell(2, 1).font = { ...XF, size: 9, color: { argb: "FF595959" } };
+  ws.getCell(3, 1).value = tr("VAT 税率"); ws.getCell(3, 1).font = XB; ws.getCell(3, 3).value = o.vatRate; ws.getCell(3, 3).numFmt = "0%"; ws.getCell(3, 3).font = XBLUE; ws.getCell(3, 3).fill = fill("FFFFFF00");
   const H1 = 4, H2 = 5, supFills = ["FFFCE4D6", "FFE2EFDA", "FFFFF2CC", "FFDDEBF7", "FFEDE7F6", "FFEDEDED"];
   for (let cc = 1; cc <= lastCol; cc++) {
     const a = ws.getCell(H1, cc), b = ws.getCell(H2, cc);
     a.font = { ...XB, color: { argb: "FFFFFFFF" } }; a.fill = fill("FF1F3864"); b.font = XB; b.fill = fill("FFD9E1F2");
     [a, b].forEach((x) => { x.alignment = { wrapText: true, vertical: "middle", horizontal: "center" }; x.border = BOX; });
   }
-  ["序号", "材料名称", "询价规格", "询价单位", "询价数量", "比价单位", "比价数量"].forEach((h, i) => { ws.getCell(H1, i + 1).value = h; ws.mergeCells(H1, i + 1, H2, i + 1); });
+  ["序号", "材料名称", "询价规格", "询价单位", "询价数量", "比价单位", "比价数量"].forEach((h, i) => { ws.getCell(H1, i + 1).value = tr(h); ws.mergeCells(H1, i + 1, H2, i + 1); });
   c.qs.forEach((q, s) => {
     const c0 = FIX + 1 + s * 3; ws.getCell(H1, c0).value = q.data.supplier; ws.mergeCells(H1, c0, H1, c0 + 2);
-    ["报价规格 / 偏离", "不含税单价", "合价"].forEach((h, j) => { const x = ws.getCell(H2, c0 + j); x.value = h; x.fill = fill(supFills[s % supFills.length]); });
+    ["报价规格 / 偏离", "不含税单价", "合价"].forEach((h, j) => { const x = ws.getCell(H2, c0 + j); x.value = tr(h); x.fill = fill(supFills[s % supFills.length]); });
   });
-  ["最低单价", "最低价供应商", "最高/最低价差", "上次成交价"].forEach((h, j) => { ws.getCell(H1, tail + j).value = h; ws.mergeCells(H1, tail + j, H2, tail + j); });
+  ["最低单价", "最低价供应商", "最高/最低价差", "上次成交价"].forEach((h, j) => { ws.getCell(H1, tail + j).value = tr(h); ws.mergeCells(H1, tail + j, H2, tail + j); });
   ws.getRow(H2).height = 30;
   const R0 = H2 + 1;
   c.rows.forEach((row, k) => {
@@ -304,10 +308,10 @@ export async function buildCompare(o: { c: C; rfqNo: string; title: string; proj
     const refs: string[] = [];
     row.cells.forEach((cell, s) => {
       const c0 = FIX + 1 + s * 3;
-      if (!cell) { set(c0, "未报", { font: { ...XF, color: { argb: "FFB3261E" } } }); set(c0 + 1, null); set(c0 + 2, null); return; }
+      if (!cell) { set(c0, tr("未报"), { font: { ...XF, color: { argb: "FFB3261E" } } }); set(c0 + 1, null); set(c0 + 2, null); return; }
       const low = row.min != null && Math.abs(cell.pCmp - row.min) < 1e-9 && row.cells.filter(Boolean).length > 1;
       const lf = low ? fill("FFC6EFCE") : undefined, l = cell.line;
-      set(c0, [l.quotedDesc, l.quotedQty ? `报 ${l.quotedQty} ${l.quotedUnit || ""}` : "", l.deviation ? `偏离：${l.deviation}` : "", cell.edited ? "单价已人工修改" : ""].filter(Boolean).join("\n"), { font: l.deviation ? { ...XF, color: { argb: "FF8F5600" } } : XF });
+      set(c0, [l.quotedDesc, l.quotedQty ? tr("报 {q} {u}", { q: l.quotedQty, u: l.quotedUnit || "" }) : "", l.deviation ? tr("偏离：{d}", { d: l.deviation }) : "", cell.edited ? tr("单价已人工修改") : ""].filter(Boolean).join("\n"), { font: l.deviation ? { ...XF, color: { argb: "FF8F5600" } } : XF });
       set(c0 + 1, +cell.pCmp.toFixed(4), { font: XBLUE, h: "right", fmt: "#,##0.00", fill: lf });
       set(c0 + 2, { formula: `G${r}*${colL(c0 + 1)}${r}`, result: cell.total }, { h: "right", fmt: "#,##0.00", fill: lf });
       refs.push(`${colL(c0 + 1)}${r}`);
@@ -317,14 +321,14 @@ export async function buildCompare(o: { c: C; rfqNo: string; title: string; proj
     set(tail + 1, who);
     set(tail + 2, refs.length > 1 ? { formula: `MAX(${refs.join(",")})/MIN(${refs.join(",")})-1`, result: row.spread } : null, { h: "right", fmt: "0.0%" });
     const h = o.history[ln.no];
-    set(tail + 3, h ? `${h.unitPrice} / ${h.unit}（${h.supplierName}，${h.date}）` : "");
+    set(tail + 3, h ? `${h.unitPrice} / ${h.unit} (${h.supplierName}, ${h.date})` : "");
     ws.getRow(r).height = 36;
   });
   const RL = R0 + c.rows.length - 1, TR = RL + 1;
   const totCol = (i: number) => colL(FIX + 3 + i * 3);
   const complete = c.sup.map((s, i) => (s.complete ? `${totCol(i)}${TR}` : null)).filter(Boolean) as string[];
   const minT = complete.length ? Math.min(...c.sup.filter((s) => s.complete).map((s) => s.total)) : 0;
-  ["合计（不含税）", "VAT", "含税合计", "与最低合计差额（不含税）", "总价排名"].forEach((lab, j) => {
+  ["合计（不含税）", "VAT", "含税合计", "与最低合计差额（不含税）", "总价排名"].map((x) => tr(x)).forEach((lab, j) => {
     const r = TR + j;
     for (let cc = 1; cc <= lastCol; cc++) { const x = ws.getCell(r, cc); x.border = BOX; if (j === 0 || j === 2) x.fill = fill("FFD9E1F2"); }
     ws.getCell(r, 1).value = lab; ws.mergeCells(r, 1, r, FIX); ws.getCell(r, 1).font = XB; ws.getCell(r, 1).alignment = { horizontal: "right", vertical: "middle" };
@@ -333,14 +337,14 @@ export async function buildCompare(o: { c: C; rfqNo: string; title: string; proj
       if (j === 0) v = { formula: `SUM(${col}${R0}:${col}${RL})`, result: s.total };
       else if (j === 1) v = { formula: `ROUND(${col}${TR}*$C$3,2)`, result: Math.round(s.vat * 100) / 100 };
       else if (j === 2) v = { formula: `${col}${TR}+${col}${TR + 1}`, result: s.gross };
-      else if (j === 3) v = s.complete && complete.length ? { formula: `${col}${TR}-MIN(${complete.join(",")})`, result: s.total - minT } : "未报全";
-      else v = s.rank ?? "未报全";
+      else if (j === 3) v = s.complete && complete.length ? { formula: `${col}${TR}-MIN(${complete.join(",")})`, result: s.total - minT } : tr("未报全");
+      else v = s.rank ?? tr("未报全");
       x.value = v as never; x.font = j === 0 || j === 2 || j === 4 ? XB : XF; x.numFmt = j === 4 ? "0" : "#,##0.00"; x.alignment = { horizontal: "right", vertical: "middle" };
       if (j === 0 && s.rank === 1) x.fill = fill("FFC6EFCE");
     });
   });
-  ["说明：", "1. 绿色 = 该项最低单价 / 最低总价；蓝色数字为报价录入值，黑色为公式。", "2. 合价统一按询价数量折算后计算，不使用供应商自行取整的数量。", "3. AI 识别结果需人工核对后再用于审批。"].forEach((t, i) => {
-    const x = ws.getCell(TR + 6 + i, 1); x.value = t; x.font = { ...XF, size: 9, bold: i === 0, color: { argb: "FF404040" } };
+  ["说明：", "1. 绿色 = 该项最低单价 / 最低总价；蓝色数字为报价录入值，黑色为公式。", "2. 合价统一按询价数量折算后计算，不使用供应商自行取整的数量。", "3. AI 识别结果需人工核对后再用于审批。"].forEach((note, i) => {
+    const x = ws.getCell(TR + 6 + i, 1); x.value = tr(note); x.font = { ...XF, size: 9, bold: i === 0, color: { argb: "FF404040" } };
   });
 
   const table = (name: string, header: string[], rows: string[][], widths: number[]) => {
@@ -351,13 +355,13 @@ export async function buildCompare(o: { c: C; rfqNo: string; title: string; proj
     return t;
   };
   const done = o.quotes.filter((q) => q.status === "done");
-  const keys: [string, keyof QuoteData["terms"], string][] = [["付款", "payment", o.terms.payment], ["交货", "delivery", o.terms.delivery], ["交货期", "leadTime", ""], ["有效期", "validity", o.terms.validity], ["价格调整", "priceAdjustment", o.terms.priceFixed], ["其他", "other", ""]];
-  table("商务条款", ["条款", "询价要求", ...done.map((q) => q.data.supplier)], [
-    ["报价单号 / 日期", o.terms.deadline ? "截止 " + o.terms.deadline : "", ...done.map((q) => [q.data.quoteNo, q.data.date].filter(Boolean).join(" / ") || "未填")],
+  const keys: [string, keyof QuoteData["terms"], string][] = [[tr("付款"), "payment", o.terms.payment], [tr("交货"), "delivery", o.terms.delivery], [tr("交货期"), "leadTime", ""], [tr("有效期"), "validity", o.terms.validity], [tr("价格调整"), "priceAdjustment", o.terms.priceFixed], [tr("其他"), "other", ""]];
+  table(tr("商务条款"), [tr("条款"), tr("询价要求"), ...done.map((q) => q.data.supplier)], [
+    [tr("报价单号 / 日期"), o.terms.deadline ? tr("截止 {d}", { d: o.terms.deadline }) : "", ...done.map((q) => [q.data.quoteNo, q.data.date].filter(Boolean).join(" / ") || tr("未填"))],
     ...keys.map(([lab, k, req]) => [lab, req || "", ...done.map((q) => q.data.terms?.[k] || "")]),
-    ["报价自身问题", "", ...done.map((q) => (q.data.issues || []).join("\n"))],
+    [tr("报价自身问题"), "", ...done.map((q) => (q.data.issues || []).join("\n"))],
   ], [16, 30, ...done.map(() => 32)]);
-  const ft = table("风险提示", ["级别", "类别", "发现", "依据", "建议动作", "来源"], o.flags.map((f) => [f.level, f.category, f.title, f.detail, f.action, f.source || ""]), [6, 12, 34, 54, 40, 6]);
+  const ft = table(tr("风险提示"), ["级别", "类别", "发现", "依据", "建议动作", "来源"].map((x) => tr(x)), o.flags.map((f) => [tr(f.level), tr(f.category), f.title, f.detail, f.action, f.source || ""]), [6, 12, 34, 54, 40, 6]);
   const lvl: Record<string, string> = { "高": "FFF8CBAD", "中": "FFFFE699", "低": "FFDDEBF7", "信息": "FFEDEDED" };
   o.flags.forEach((f, k) => { const x = ft.getCell(k + 2, 1); x.fill = fill(lvl[f.level] || "FFEDEDED"); x.alignment = { horizontal: "center", vertical: "top" }; });
   return new Blob([await wb.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -367,12 +371,12 @@ export async function buildCompare(o: { c: C; rfqNo: string; title: string; proj
 export async function buildQuestions(project: string, rows: { no: string; name: string; spec: string; question: string; questionEn: string; options: string[]; answer: string; status: string }[]): Promise<Blob> {
   const ExcelJS = await lib();
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet("待确认问题");
+  const ws = wb.addWorksheet(tr("待确认问题"));
   const widths = [8, 26, 28, 36, 36, 30, 24];
   widths.forEach((w, i) => (ws.getColumn(i + 1).width = w));
-  ws.mergeCells(1, 1, 1, 7); ws.getCell(1, 1).value = `待工程部确认问题清单 · ${project}`; ws.getCell(1, 1).font = { ...XB, size: 13 };
-  ws.mergeCells(2, 1, 2, 7); ws.getCell(2, 1).value = "请在“答复”列填写，或勾选可选项之一。To be confirmed by the Engineering Department."; ws.getCell(2, 1).font = { ...XF, color: { argb: "FF595959" } };
-  ["需求序号\nItem", "物资名称\nMaterial", "当前规格\nCurrent spec", "问题", "Question", "可选项\nOptions", "答复\nAnswer"].forEach((h, i) => { const x = ws.getCell(4, i + 1); x.value = h; x.font = { ...XB, color: { argb: "FFFFFFFF" } }; x.fill = fill("FF1F3864"); x.alignment = { wrapText: true, vertical: "middle", horizontal: "center" }; x.border = BOX; });
+  ws.mergeCells(1, 1, 1, 7); ws.getCell(1, 1).value = `${tr("待工程部确认问题清单")}: ${project}`; ws.getCell(1, 1).font = { ...XB, size: 13 };
+  ws.mergeCells(2, 1, 2, 7); ws.getCell(2, 1).value = lang() === "zh" ? "请在“答复”列填写，或勾选可选项之一。To be confirmed by the Engineering Department." : "Please fill in the Answer column or pick one of the options."; ws.getCell(2, 1).font = { ...XF, color: { argb: "FF595959" } };
+  (lang() === "zh" ? ["需求序号\nItem", "物资名称\nMaterial", "当前规格\nCurrent spec", "问题", "Question", "可选项\nOptions", "答复\nAnswer"] : ["Item", "Material", "Current spec", "Question (Chinese)", "Question", "Options", "Answer"]).forEach((h, i) => { const x = ws.getCell(4, i + 1); x.value = h; x.font = { ...XB, color: { argb: "FFFFFFFF" } }; x.fill = fill("FF1F3864"); x.alignment = { wrapText: true, vertical: "middle", horizontal: "center" }; x.border = BOX; });
   ws.getRow(4).height = 32;
   rows.forEach((q, k) => {
     const r = 5 + k;
