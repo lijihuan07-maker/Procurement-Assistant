@@ -8,6 +8,6 @@ export type Ctx = { d: PackageData; setD: (d: PackageData) => void; run: Run; bu
 
 export async function rfqBlob(d: PackageData) {
   const s = d.pkg.snapshot!;
-  return buildRfq({ rfqNo: s.rfqNo, titleCn: s.title, titleEn: s.titleEn, project: s.project, currency: s.currency, vatRate: s.vatRate, deadline: s.deadline, validity: s.validity, payment: s.payment, lines: s.lines, template: d.rfqTemplate });
+  return buildRfq({ rfqNo: s.rfqNo, titleCn: s.title, titleEn: s.titleEn, project: s.project, currency: s.currency, vatRate: s.vatRate, deadline: s.deadline, validity: s.validity, payment: s.payment, lines: s.lines, standards: s.standards, template: d.rfqTemplate });
 }
 export const rfqFileName = (d: PackageData) => `${d.pkg.rfqNo} ${(lang() === "zh" ? d.pkg.titleCn || d.pkg.titleEn : d.pkg.titleEn || d.pkg.titleCn)}.xlsx`;

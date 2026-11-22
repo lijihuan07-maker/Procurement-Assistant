@@ -131,3 +131,42 @@ ${q.materials.length ? `这次要询价的物资示例：${q.materials.slice(0, 
 2. 优先列 ${q.area} 本地的，不够时可以补充同一国家其他城市、能送货到 ${q.area} 的公司，city 写真实所在城市。
 3. 尽量给 8–15 家，宁缺毋滥。`;
 }
+
+export function contractImportPrompt(fileName: string, content: string, hasImages: boolean, chunk?: { part: number; parts: number; context: string }) {
+  const partNote = chunk && chunk.parts > 1 ? `\n文件较长，分 ${chunk.parts} 部分并行处理，现在是第 ${chunk.part} 部分。${chunk.context ? "“表头参考”只用来理解各列含义，不要从中提取合同；" : ""}只处理“本部分内容”。` : "";
+  const body = chunk?.context ? `表头参考（不要提取）：\n${chunk.context}\n\n本部分内容：\n${content}` : content ? "文件内容：\n" + content : "";
+  return `下面是用户上传的采购合同台账“${fileName}”${hasImages ? "（附图是文件页面）" : ""}。请提取其中每一份采购合同（或采购订单）。${partNote}
+
+只输出 JSON：
+{"contracts":[{"contractNo":"合同编号","title":"合同名称或采购内容","supplierName":"供应商（原文）","projectName":"所属项目","signDate":"签订日期 YYYY-MM-DD","amount":123456.78,"currency":"SAR/CNY/USD 等","taxIncluded":true,"paid":0,"paymentTerms":"付款条件","deliveryDate":"交货日期 YYYY-MM-DD","status":"pending（未签订）| active（执行中）| completed（已完成/已结清）| terminated（终止）","notes":"其他有用信息，简短"}]}
+规则：
+1. 一行或一组合并行代表一份合同；表头、合计、小计、示例行都不是合同。
+2. amount、paid 是不带千分位的纯数字；找不到就写 0。表里写了“已付/累计付款/付款比例”的，换算成已付金额。
+3. 金额列标明“不含税”时 taxIncluded 为 false，否则为 true。
+4. 状态看不出来时：有完成、结清、关闭字样为 completed，否则为 active。
+5. 日期只写能确定的，不能确定写空字符串。
+${body}`;
+}
+
+export function standardsPrompt(location: string) {
+  return `工程项目地点：“${location}”。请上网查证后，列出在这个地点的建设项目采购材料和设备时，通常需要符合或会被要求的标准体系和认证。
+
+覆盖这几类（当地没有的就不写）：
+1. 国家建筑规范（例如沙特的 SBC、卡塔尔的 QCS）；
+2. 产品合格评定和进口认证（例如沙特的 SASO / SABER、阿联酋的 ECAS）；
+3. 水、电等公用事业单位对材料的技术规范或认可清单（例如水务公司、电力公司的材料规范）；
+4. 当地工程中常被引用的国际标准（BS EN、ASTM、ISO、IEC 等）；
+5. 消防、市政等其他常见的强制要求。
+
+只输出 JSON：
+{"country":"国家","summary":"一两句话概括：在这里采购材料最需要注意什么",
+"systems":[{"name":"标准体系名称（原文缩写 + 全称）","scope":"适用于哪些材料或场景，简短","note":"采购时怎么用，例如要求供应商提供哪种证书，简短"}]}
+规则：最多 8 条，按对采购的重要性排序；只写确实存在、仍在使用的体系，没把握的不写；版本年份查不准就不写年份。`;
+}
+
+/** Context line added to AI prompts when the project's local standards are known. */
+export function standardsContext(p: { location: string; standards: { systems: { name: string }[] } | null }) {
+  if (!p.location) return "";
+  const names = p.standards?.systems.map((s) => s.name).slice(0, 8).join("；");
+  return `\n项目地点：${p.location}。${names ? `当地常用的标准体系：${names}。提问和写技术要求时考虑这些标准（例如是否需要相应认证、是否必须是认可供应商），但不要为了标准凭空增加问题。` : ""}\n`;
+}

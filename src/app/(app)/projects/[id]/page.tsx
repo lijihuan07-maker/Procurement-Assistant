@@ -16,6 +16,7 @@ import { useBusy, Busy, Drop, StatusChip, toast, PageHeader, Section, TableFrame
 import type { ProjectData, Item, Question } from "@/lib/client/types";
 import type { DemandItem } from "@/app/api/projects/[id]/demand/route";
 import type { Lang } from "@/lib/i18n";
+import { Standards } from "./Standards";
 
 type Tab = "demand" | "specs" | "packages";
 type Ctx = { d: ProjectData; setD: (d: ProjectData) => void; run: Run; busy: string | null };
@@ -40,6 +41,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <Busy text={busy} />
           <Button variant="ghost" size="sm" className="text-bad hover:bg-bad-soft" onClick={async () => { if (!window.confirm?.(T("删除这个项目和它的全部询价、报价？"))) return; await run(T("删除中…"), () => api(`/api/projects/${id}`, { method: "DELETE" })); router.push("/projects"); }}><Trash2 />{T("删除项目")}</Button>
         </>} />
+      <Standards d={d} setD={setD} />
       <Stages current={tab} onSelect={(k) => setTab(k as Tab)} stages={[
         { key: "demand", label: T("需求清单与澄清"), count: open || undefined, tone: "warn", done: d.items.length > 0 && open === 0 },
         { key: "specs", label: T("技术规格书"), count: d.specDocs.length || undefined, done: d.specDocs.length > 0 },

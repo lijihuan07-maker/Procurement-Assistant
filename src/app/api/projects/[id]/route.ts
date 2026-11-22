@@ -9,11 +9,12 @@ export const GET = route(async ({ db, user, params }) => {
 });
 
 export const PATCH = route(async ({ req, db, user, params }) => {
-  await ownProject(db, user, params.id);
+  const before = await ownProject(db, user, params.id);
   const b = await body<{ name?: string; location?: string; owner?: string }>(req);
   const patch: Record<string, string> = {};
   for (const k of ["name", "location", "owner"] as const) if (typeof b[k] === "string") patch[k] = b[k]!.trim();
-  if (Object.keys(patch).length) await db.update(schema.projects).set(patch).where(eq(schema.projects.id, params.id));
+  const moved = "location" in patch && patch.location !== before.location;
+  if (Object.keys(patch).length) await db.update(schema.projects).set({ ...patch, ...(moved ? { standards: null } : {}) }).where(eq(schema.projects.id, params.id));
   return loadProject(db, params.id);
 });
 

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Clock, FilePen, FolderPlus, HelpCircle, MailQuestion, Trophy, Upload } from "lucide-react";
+import { ArrowRight, Clock, FilePen, FileSignature, FolderPlus, HelpCircle, MailQuestion, Trophy, Upload } from "lucide-react";
 import { api, fmt } from "@/lib/client/api";
 import { tm, useLang, useT } from "@/lib/i18n/client";
 import { names } from "@/lib/client/display";
@@ -12,7 +12,7 @@ import { PageHeader, Section, TableFrame, Stats, Empty, StatusChip, Loading, toa
 import { MaterialSearch } from "../suppliers/Materials";
 import type { Msg } from "@/lib/i18n";
 
-type Todo = { kind: "deadline" | "noreply" | "award" | "questions" | "draft"; level: "high" | "mid" | "low"; text: Msg; href: string; date?: string };
+type Todo = { kind: "deadline" | "noreply" | "award" | "questions" | "draft" | "contract"; level: "high" | "mid" | "low"; text: Msg; href: string; date?: string };
 type Data = {
   name: string;
   todos: Todo[];
@@ -21,7 +21,7 @@ type Data = {
   stats: { activeRfqs: number; waiting: number; openQuestions: number; suppliers: number; projects: number };
 };
 
-const ICON = { deadline: Clock, noreply: MailQuestion, award: Trophy, questions: HelpCircle, draft: FilePen };
+const ICON = { deadline: Clock, noreply: MailQuestion, award: Trophy, questions: HelpCircle, draft: FilePen, contract: FileSignature };
 const DOT = { high: "bg-bad", mid: "bg-signal", low: "bg-muted-foreground/40" };
 
 export default function Workbench() {
@@ -64,7 +64,7 @@ export default function Workbench() {
                       <span className="relative mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border bg-card text-muted-foreground">
                         <Icon className="size-4" /><span className={cn("absolute -top-0.5 -end-0.5 size-2 rounded-full", DOT[t.level])} />
                       </span>
-                      <span className="min-w-0 flex-1 text-[13.5px] leading-snug">{tm(t.text)}{t.date && <span className="num mt-0.5 block text-xs text-muted-foreground">{T("截止")} {t.date}</span>}</span>
+                      <span className="min-w-0 flex-1 text-[13.5px] leading-snug">{tm(t.text)}{t.date && <span className="num mt-0.5 block text-xs text-muted-foreground">{t.kind === "contract" ? T("交货日期") : T("截止")} {t.date}</span>}</span>
                       <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 rtl:rotate-180" />
                     </Link>
                   </li>

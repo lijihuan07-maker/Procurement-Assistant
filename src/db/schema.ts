@@ -1,4 +1,4 @@
-import { pgTable, text, integer, doublePrecision, timestamp, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, doublePrecision, timestamp, jsonb, uniqueIndex, index, boolean } from "drizzle-orm/pg-core";
 
 const id = () => text("id").primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
@@ -40,6 +40,8 @@ export const projects = pgTable("projects", {
   location: text("location").notNull().default(""),
   owner: text("owner").notNull().default(""),
   demandFileName: text("demand_file_name"),
+  /** Material standards that apply where the project is, identified by AI from the location. */
+  standards: jsonb("standards").$type<ProjectStandards | null>(),
   createdAt: createdAt(),
 }, (t) => [index("projects_company_idx").on(t.companyId)]);
 
@@ -201,7 +203,7 @@ export const editLog = pgTable("edit_log", {
 
 /* ---------- JSON shapes ---------- */
 export type RfqLine = { no: string; itemId: string; name: string; spec: string; unit: string; qty: number; techReq: string; hint: string; category: string };
-export type RfqSnapshot = { rfqNo: string; title: string; titleEn: string; project: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[] };
+export type RfqSnapshot = { rfqNo: string; title: string; titleEn: string; project: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[]; standards?: string[] };
 export type Overrides = { price: Record<string, Record<string, number>>; factor: Record<string, number> };
 export type Flag = { level: "高" | "中" | "低" | "信息"; category: string; title: string; detail: string; action: string; source?: string };
 export type Award = { mode: "whole" | "items"; quoteId?: string; items?: Record<string, string>; at: string };
@@ -214,3 +216,35 @@ export type QuoteData = {
 };
 export type RfqTemplate = { fileName: string; titleSuffix: string; headerLines: string[]; blocks: { label: string; values: string[] }[]; fileB64?: string };
 export type EmailTemplate = { subject: string; body: string };
+
+export type ProjectStandards = {
+  location: string; // the location text these were identified for
+  country: string;
+  summary: string;
+  systems: { name: string; scope: string; note: string }[];
+  checkedAt: string;
+};
+
+/** Contract ledger: one row per purchase contract / PO with a supplier. */
+export const contracts = pgTable("contracts", {
+  id: id(),
+  companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+  packageId: text("package_id").references(() => packages.id, { onDelete: "set null" }),
+  supplierId: text("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
+  supplierName: text("supplier_name").notNull().default(""),
+  projectName: text("project_name").notNull().default(""), // free text when the project is not in the tool
+  contractNo: text("contract_no").notNull().default(""),
+  title: text("title").notNull().default(""),
+  signDate: text("sign_date").notNull().default(""),
+  amount: doublePrecision("amount").notNull().default(0),
+  currency: text("currency").notNull().default(""),
+  taxIncluded: boolean("tax_included").notNull().default(true),
+  paid: doublePrecision("paid").notNull().default(0),
+  paymentTerms: text("payment_terms").notNull().default(""),
+  deliveryDate: text("delivery_date").notNull().default(""),
+  status: text("status").notNull().default("active"), // pending (to sign) | active | completed | terminated
+  notes: text("notes").notNull().default(""),
+  createdAt: createdAt(),
+}, (t) => [index("contracts_company_idx").on(t.companyId)]);
+

@@ -70,7 +70,7 @@ const QUOTE_NOTES = [
   "3. State minimum order quantities, if any. Fill in the company name, quotation date, signature and stamp.",
 ];
 
-export type RfqDoc = { rfqNo: string; titleCn: string; titleEn: string; project: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[]; template: RfqTemplate | null };
+export type RfqDoc = { rfqNo: string; titleCn: string; titleEn: string; project: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[]; standards?: string[]; template: RfqTemplate | null };
 
 export async function buildRfq(d: RfqDoc): Promise<Blob> {
   if (d.template?.fileB64) return buildFromTemplate(d, d.template.fileB64);
@@ -132,6 +132,7 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   if (!seen.deadline) block(bi("Quotation Deadline", "报价截止日期"), [fmtDate(d.deadline)]);
   if (!seen.valid) block(bi("Valid Period", "报价有效期"), [d.validity]);
   if (!seen.pay) block(bi("Terms of payment", "支付条款"), [d.payment]);
+  if (d.standards?.length) block(bi("Applicable Standards", "适用标准"), [`Materials shall comply with the applicable local standards and approvals, including: ${d.standards.join("; ")}. Provide the relevant certificates with the quotation.`]);
   block(bi("Quotation Instructions", "报价说明"), QUOTE_NOTES);
   [bi("Supplier", "供应商公司名称"), bi("Signature & Stamp", "签字盖章"), bi("Date of Quotation", "报价日期")].forEach((l) => { block(l, [""]); ws.getRow(r - 1).height = 30; });
   return new Blob([await wb.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });

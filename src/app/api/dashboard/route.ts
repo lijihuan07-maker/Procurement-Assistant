@@ -3,7 +3,7 @@ import { schema } from "@/db";
 import { route } from "@/lib/http";
 import { msg, type Msg } from "@/lib/i18n";
 
-type Todo = { kind: "deadline" | "noreply" | "award" | "questions" | "draft"; level: "high" | "mid" | "low"; text: Msg; href: string; date?: string };
+type Todo = { kind: "deadline" | "noreply" | "award" | "questions" | "draft" | "contract"; level: "high" | "mid" | "low"; text: Msg; href: string; date?: string };
 
 const day = 864e5;
 const daysBetween = (a: string, b: Date) => Math.round((new Date(a + "T00:00:00").getTime() - new Date(b.toISOString().slice(0, 10) + "T00:00:00").getTime()) / day);
@@ -51,6 +51,16 @@ export const GET = route(async ({ db, user }) => {
   const drafts = new Map<string, number>();
   for (const p of pkgs) if (p.status === "draft") drafts.set(p.projectId, (drafts.get(p.projectId) || 0) + 1);
   for (const [pid, n] of drafts) todos.push({ kind: "draft", level: "low", text: msg("项目 {p} 有 {n} 个询价包还没锁定发出", { p: pname.get(pid) || "", n }), href: `/projects/${pid}` });
+  // Contracts: unsigned ones after an award, deliveries due within a week or overdue.
+  const contracts = await db.select().from(schema.contracts).where(eq(schema.contracts.companyId, user.companyId));
+  const pending = contracts.filter((c) => c.status === "pending");
+  if (pending.length) todos.push({ kind: "contract", level: "mid", text: msg("{n} 份合同已定标、待签订", { n: pending.length }), href: "/contracts" });
+  for (const c of contracts.filter((x) => x.status === "active" && x.deliveryDate)) {
+    const d = daysBetween(c.deliveryDate, now);
+    const name = c.contractNo || c.title || c.supplierName;
+    if (d < 0) todos.push({ kind: "contract", level: "high", text: msg("合同 {c}（{s}）已过交货日期 {d} 天", { c: name, s: c.supplierName, d: -d }), href: "/contracts", date: c.deliveryDate });
+    else if (d <= 7) todos.push({ kind: "contract", level: "mid", text: msg("合同 {c}（{s}）{d} 天后到交货日期", { c: name, s: c.supplierName, d }), href: "/contracts", date: c.deliveryDate });
+  }
   const order = { high: 0, mid: 1, low: 2 };
   todos.sort((a, b) => order[a.level] - order[b.level] || (a.date || "9").localeCompare(b.date || "9"));
 

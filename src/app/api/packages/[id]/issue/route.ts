@@ -27,7 +27,7 @@ export const POST = route(async ({ req, db, user, params }) => {
   }
   await db.update(schema.packages).set({
     status: "issued", rfqNo, deadline,
-    snapshot: { rfqNo, title: pkg.titleCn, titleEn: pkg.titleEn, project: project.name, currency: company.currency, vatRate: company.vatRate, deadline, validity: company.validity, payment: company.paymentTerms, lines },
+    snapshot: { rfqNo, title: pkg.titleCn, titleEn: pkg.titleEn, project: project.name, currency: company.currency, vatRate: company.vatRate, deadline, validity: company.validity, payment: company.paymentTerms, lines, standards: project.standards?.systems.map((x) => x.name) || [] },
   }).where(eq(schema.packages.id, pkg.id));
   return loadPackage(db, pkg.id);
 });

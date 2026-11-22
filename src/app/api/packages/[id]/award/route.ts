@@ -5,15 +5,18 @@ import { compute, type QuoteRow } from "@/lib/compare";
 import { loadPackage } from "@/lib/package";
 import { addMaterials } from "@/lib/materials";
 import { classify } from "@/lib/taxonomy";
+import { contractsFromAward } from "@/lib/contracts";
+import { translate } from "@/lib/i18n";
 
 /** Award the whole package to one quote, or line by line. Awarded prices become history records for future comparisons. */
-export const POST = route(async ({ req, db, user, params }) => {
+export const POST = route(async ({ req, db, user, params, lang }) => {
   const { pkg } = await ownPackage(db, user, params.id);
   if (!pkg.snapshot) throw new HttpError(409, "询价单还没有锁定");
   const b = await body<{ mode: "whole" | "items" | "cancel"; quoteId?: string; items?: Record<string, string> }>(req);
   if (b.mode === "cancel") {
     await db.delete(schema.priceRecords).where(and(eq(schema.priceRecords.packageId, pkg.id), eq(schema.priceRecords.source, "award")));
     await db.update(schema.packages).set({ award: null, status: "issued" }).where(eq(schema.packages.id, pkg.id));
+    await contractsFromAward(db, user.companyId, pkg, new Map(), "");
     return loadPackage(db, pkg.id);
   }
   const quotes = (await db.select().from(schema.quotes).where(eq(schema.quotes.packageId, pkg.id))) as QuoteRow[];
@@ -49,6 +52,16 @@ export const POST = route(async ({ req, db, user, params }) => {
     won.set(q.supplierId, list);
   }
   for (const [sid, list] of won) await addMaterials(db, user.companyId, sid, list);
+  // One contract to sign per winning supplier, amount = its awarded lines excluding VAT.
+  const perSupplier = new Map<string, { name: string; amount: number }>();
+  for (const r of c.rows) {
+    const i = c.qs.findIndex((q) => q.id === pick[r.line.no]);
+    const q = c.qs[i], cell = r.cells[i];
+    if (!q?.supplierId || !cell) continue;
+    const v = perSupplier.get(q.supplierId) || { name: q.data.supplier, amount: 0 };
+    v.amount += cell.total; perSupplier.set(q.supplierId, v);
+  }
+  await contractsFromAward(db, user.companyId, pkg, perSupplier, translate(lang, "由 {rfq} 定标生成，金额不含税", { rfq: pkg.snapshot.rfqNo }));
   await db.update(schema.packages).set({ award: { mode: b.mode, quoteId: b.mode === "whole" ? b.quoteId : undefined, items: pick, at: new Date().toISOString() }, status: "awarded" }).where(eq(schema.packages.id, pkg.id));
   return loadPackage(db, pkg.id);
 });

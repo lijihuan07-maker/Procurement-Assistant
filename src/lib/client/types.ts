@@ -1,11 +1,12 @@
 import type { Msg } from "@/lib/i18n";
+import type { ProjectStandards } from "@/db/schema";
 import type { Flag, QuoteData, RfqLine, RfqSnapshot, Overrides, Award, RfqTemplate, EmailTemplate } from "@/db/schema";
 
 export type Question = { id: string; itemId: string; question: string; questionEn: string; options: string[]; answer: string; status: string; specQuote: string };
 export type Item = { id: string; seq: number; no: string; nameCn: string; nameEn: string; spec: string; unit: string; qty: number; dateRequired: string; techReq: string; specRef: string; category: string; quoteHint: string; issues: string[]; packageId: string | null; questions: Question[] };
 export type PkgSummary = { id: string; code: string; titleCn: string; titleEn: string; supplierType: string; reason: string; status: string; rfqNo: string | null; deadline: string | null; quotes: number };
 export type ProjectData = {
-  project: { id: string; name: string; location: string; owner: string; demandFileName: string | null };
+  project: { id: string; name: string; location: string; owner: string; demandFileName: string | null; standards: ProjectStandards | null };
   items: Item[]; packages: PkgSummary[];
   specDocs: { id: string; fileName: string; pages: number; sections: number; createdAt: string }[];
 };

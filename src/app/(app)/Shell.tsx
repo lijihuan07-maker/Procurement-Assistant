@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, FolderKanban, LayoutDashboard, LogOut, Menu, Settings2, X } from "lucide-react";
+import { Building2, FileSignature, FolderKanban, LayoutDashboard, LogOut, Menu, Settings2, X } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { LangSwitch } from "@/components/LangSwitch";
 const LINKS = [
   { href: "/workbench", label: "工作台", icon: LayoutDashboard },
   { href: "/projects", label: "项目", icon: FolderKanban, also: "/packages" },
+  { href: "/contracts", label: "合同台账", icon: FileSignature },
   { href: "/suppliers", label: "供应商库", icon: Building2 },
   { href: "/settings", label: "设置与模板", icon: Settings2 },
 ];

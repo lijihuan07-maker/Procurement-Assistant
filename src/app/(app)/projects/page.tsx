@@ -33,8 +33,8 @@ export default function Projects() {
         <Section title={T("新建项目")} actions={list?.length ? <Button variant="ghost" size="icon" aria-label={T("关闭")} onClick={() => setAdding(false)}><X /></Button> : null}>
           <form onSubmit={create} className="grid gap-4">
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field label={T("项目名称")}><Input id="p-name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={T("例如：F-7006 别墅小区一期")} /></Field>
-              <Field label={T("项目地点")}><Input id="p-loc" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} placeholder={T("例如：Jazan")} /></Field>
+              <Field label={T("项目名称")}><Input id="p-name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={T("例如：室外管道工程")} /></Field>
+              <Field label={T("项目地点")}><Input id="p-loc" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} placeholder={T("例如：沙特吉赞")} /></Field>
               <Field label={T("业主")}><Input id="p-owner" value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} /></Field>
             </div>
             <div className="flex items-center gap-3"><Button type="submit" disabled={!!busy}>{T("新建项目")}</Button><Busy text={busy} /></div>
