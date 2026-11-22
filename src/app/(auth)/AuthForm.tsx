@@ -26,7 +26,7 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setErr(""); setBusy(true);
-    try { await api(`/api/auth/${mode}`, { body: f }); window.location.href = "/projects"; }
+    try { await api(`/api/auth/${mode}`, { body: f }); window.location.href = "/workbench"; }
     catch (x) { setErr(x instanceof Error ? x.message : String(x)); setBusy(false); }
   }
   return (

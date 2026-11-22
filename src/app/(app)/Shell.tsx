@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, FolderKanban, LogOut, Menu, Settings2, X } from "lucide-react";
+import { Building2, FolderKanban, LayoutDashboard, LogOut, Menu, Settings2, X } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import { BrandMark } from "@/components/Brand";
 import { LangSwitch } from "@/components/LangSwitch";
 
 const LINKS = [
+  { href: "/workbench", label: "工作台", icon: LayoutDashboard },
   { href: "/projects", label: "项目", icon: FolderKanban, also: "/packages" },
   { href: "/suppliers", label: "供应商库", icon: Building2 },
   { href: "/settings", label: "设置与模板", icon: Settings2 },
@@ -22,7 +23,7 @@ export function Shell({ user, children }: { user: { name: string; email: string;
   useEffect(() => setOpen(false), [path]);
   const nav = (
     <div className="flex h-full flex-col">
-      <Link href="/projects" className="flex items-center gap-2.5 px-5 pt-5 pb-6 text-[15px] font-semibold text-white no-underline">
+      <Link href="/workbench" className="flex items-center gap-2.5 px-5 pt-5 pb-6 text-[15px] font-semibold text-white no-underline">
         <BrandMark className="size-7" />{T("询价比价助手")}
       </Link>
       <nav className="grid gap-0.5 px-3">
@@ -54,7 +55,7 @@ export function Shell({ user, children }: { user: { name: string; email: string;
       <aside className="fixed inset-y-0 start-0 z-30 hidden w-60 bg-sidebar lg:block">{nav}</aside>
       <div className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-sidebar px-4 lg:hidden">
         <button aria-label={T("菜单")} className="cursor-pointer text-white" onClick={() => setOpen(true)}><Menu className="size-5" /></button>
-        <Link href="/projects" className="flex items-center gap-2 text-[15px] font-semibold text-white no-underline"><BrandMark className="size-6" />{T("询价比价助手")}</Link>
+        <Link href="/workbench" className="flex items-center gap-2 text-[15px] font-semibold text-white no-underline"><BrandMark className="size-6" />{T("询价比价助手")}</Link>
       </div>
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
