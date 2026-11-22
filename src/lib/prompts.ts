@@ -165,8 +165,10 @@ export function standardsPrompt(location: string) {
 }
 
 /** Context line added to AI prompts when the project's local standards are known. */
-export function standardsContext(p: { location: string; standards: { systems: { name: string }[] } | null }) {
-  if (!p.location) return "";
+export function standardsContext(p: { location: string; standards: { systems: { name: string }[] } | null; kind?: string; siteName?: string; name?: string }) {
+  const kind = { subcontract: "分包（工程施工分包，按工作内容和工程量报价）", rental: "租赁（设备/车辆租赁，按台班、天、月等时间单位报价）", service: "服务（运输、检测、咨询等服务）" }[p.kind || ""];
+  const head = [p.siteName && p.name ? `工程项目：${p.siteName}；采购需求：${p.name}。` : "", kind ? `采购类型：${kind}。提问时按这个类型问关键参数，不要套用材料规格的问法。` : ""].join("");
+  if (!p.location) return head ? `\n${head}\n` : "";
   const names = p.standards?.systems.map((s) => s.name).slice(0, 8).join("；");
-  return `\n项目地点：${p.location}。${names ? `当地常用的标准体系：${names}。提问和写技术要求时考虑这些标准（例如是否需要相应认证、是否必须是认可供应商），但不要为了标准凭空增加问题。` : ""}\n`;
+  return `\n${head}项目地点：${p.location}。${names ? `当地常用的标准体系：${names}。提问和写技术要求时考虑这些标准（例如是否需要相应认证、是否必须是认可供应商），但不要为了标准凭空增加问题。` : ""}\n`;
 }

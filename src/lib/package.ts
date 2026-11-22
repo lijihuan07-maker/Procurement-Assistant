@@ -1,28 +1,15 @@
 import "server-only";
 import { msg, type Msg } from "./i18n";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { schema, type DB } from "@/db";
-import type { RfqLine, RfqTemplate, EmailTemplate } from "@/db/schema";
+import type { RfqLine, EmailTemplate } from "@/db/schema";
 import { buildLines } from "./data";
 import { familiesOf, fitOf, materialsBySupplier } from "./materials";
+import { nextRfqNo, settingsOf } from "./settings";
+import { DEFAULT_EMAIL } from "./email-default";
+export { DEFAULT_EMAIL };
 
-export const DEFAULT_EMAIL: EmailTemplate = {
-  subject: "Request for Quotation {rfqNo} – {title}",
-  body: `Dear {contact},
 
-We are pleased to invite {supplier} to submit your best quotation for the materials listed in the attached RFQ ({rfqNo}) for our project {project}.
-
-Please note:
-- Quote every item in the unit stated in the RFQ. If you price in another unit, state the conversion.
-- State any deviation from the specification in the Remark column.
-- Unit prices shall exclude VAT; please show VAT separately.
-
-Kindly send your signed and stamped quotation by {deadline}, replying to this email and keeping all recipients in copy.
-
-Best regards,
-{sender}
-{company}`,
-};
 
 const norm = (s: string) => s.toLowerCase().replace(/[\s\-_,.;:()（）、，]/g, "");
 const dims = (s: string) => (s.match(/\d+(?:\.\d+)?/g) || []).sort().join("x");
@@ -71,24 +58,24 @@ export async function recommend(db: DB, companyId: string, lines: RfqLine[], sup
 
 export async function loadPackage(db: DB, packageId: string) {
   const [pkg] = await db.select().from(schema.packages).where(eq(schema.packages.id, packageId));
-  const [project] = await db.select().from(schema.projects).where(eq(schema.projects.id, pkg.projectId));
+  const [{ project, site }] = await db.select({ project: schema.projects, site: schema.sites }).from(schema.projects)
+    .innerJoin(schema.sites, eq(schema.projects.siteId, schema.sites.id)).where(eq(schema.projects.id, pkg.projectId));
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, project.companyId));
+  const settings = settingsOf(project, company);
   const lines = pkg.snapshot?.lines ?? (await buildLines(db, pkg.id));
   const quotes = await db.select().from(schema.quotes).where(eq(schema.quotes.packageId, pkg.id)).orderBy(asc(schema.quotes.createdAt));
   const invites = await db.select({ invite: schema.invites, supplier: schema.suppliers }).from(schema.invites)
     .innerJoin(schema.suppliers, eq(schema.invites.supplierId, schema.suppliers.id)).where(eq(schema.invites.packageId, pkg.id));
-  const [rfqTpl] = await db.select().from(schema.templates).where(and(eq(schema.templates.companyId, company.id), eq(schema.templates.kind, "rfq"))).orderBy(desc(schema.templates.createdAt)).limit(1);
-  const [emailTpl] = await db.select().from(schema.templates).where(and(eq(schema.templates.companyId, company.id), eq(schema.templates.kind, "email"))).orderBy(desc(schema.templates.createdAt)).limit(1);
   const recs = await db.select().from(schema.priceRecords).where(eq(schema.priceRecords.companyId, company.id)).orderBy(desc(schema.priceRecords.date));
   const history: Record<string, { supplierName: string; unitPrice: number; unit: string; currency: string; date: string; source: string } | null> = {};
   for (const l of lines) { const h = matchHistory(l, recs); history[l.no] = h ? { supplierName: h.supplierName, unitPrice: h.unitPrice, unit: h.unit, currency: h.currency, date: h.date, source: h.source } : null; }
   const recos = await recommend(db, company.id, lines, pkg.supplierType);
   return {
-    pkg, project: { id: project.id, name: project.name, location: project.location, owner: project.owner },
-    company: { name: company.name, currency: company.currency, vatRate: company.vatRate, paymentTerms: company.paymentTerms, validity: company.validity, senderName: company.senderName, rfqPrefix: company.rfqPrefix, rfqNextNo: company.rfqNextNo, rfqPad: company.rfqPad },
+    pkg, project: { id: project.id, name: project.name, siteId: site.id, siteName: site.name, location: site.location, owner: site.owner },
+    settings: { ...settings, rfqTemplate: null, email: null }, nextRfqNo: pkg.status === "draft" ? await nextRfqNo(db, company.id, settings) : "",
     lines, quotes, invites: invites.map((r) => ({ ...r.invite, supplier: r.supplier })),
-    rfqTemplate: (rfqTpl?.data as RfqTemplate) || null,
-    emailTemplate: (emailTpl?.data as EmailTemplate) || DEFAULT_EMAIL,
+    rfqTemplate: settings.rfqTemplate,
+    emailTemplate: settings.email || DEFAULT_EMAIL,
     history,
     recommendations: recos.map((r) => ({ supplier: r.supplier, reasons: r.reasons, score: r.score, match: r.match, isNew: r.isNew, tier: r.tier })),
   };

@@ -2,7 +2,7 @@ import { and, asc, eq, isNull, ne } from "drizzle-orm";
 import { schema } from "@/db";
 import { route, ownProject, HttpError } from "@/lib/http";
 import { askJson } from "@/lib/ai";
-import { splitPrompt } from "@/lib/prompts";
+import { splitPrompt, standardsContext } from "@/lib/prompts";
 import { loadProject } from "@/lib/data";
 
 export const maxDuration = 300;
@@ -15,7 +15,7 @@ export const POST = route(async ({ db, user, params, lang }) => {
   await db.delete(schema.packages).where(and(eq(schema.packages.projectId, project.id), eq(schema.packages.status, "draft")));
   const items = await db.select().from(schema.demandItems).where(and(eq(schema.demandItems.projectId, project.id), isNull(schema.demandItems.packageId))).orderBy(asc(schema.demandItems.seq));
   if (!items.length) throw new HttpError(400, "没有待分包的需求项");
-  const out = await askJson<Out>("split", splitPrompt(items.map((i) => ({ no: i.no, nameCn: i.nameCn, nameEn: i.nameEn, spec: i.spec, unit: i.unit, qty: i.qty, category: i.category }))), { maxTokens: 12000, lang });
+  const out = await askJson<Out>("split", splitPrompt(items.map((i) => ({ no: i.no, nameCn: i.nameCn, nameEn: i.nameEn, spec: i.spec, unit: i.unit, qty: i.qty, category: i.category }))) + standardsContext(project), { maxTokens: 12000, lang });
   const existing = await db.select({ code: schema.packages.code }).from(schema.packages).where(and(eq(schema.packages.projectId, project.id), ne(schema.packages.status, "draft")));
   let n = existing.reduce((m, p) => Math.max(m, Number(p.code.replace(/\D/g, "")) || 0), 0);
   for (const p of out.packages || []) {

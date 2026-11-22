@@ -17,7 +17,7 @@ export const POST = route(async ({ req, db, user, params }) => {
     if (existing.some((e) => e.supplierId === s.id)) continue;
     const mail = fillEmail(data.emailTemplate, {
       supplier: s.name, contact: s.contact || "Sir/Madam", rfqNo: pkg.rfqNo || "", title: pkg.titleEn || pkg.titleCn,
-      project: project.name, deadline: pkg.deadline || "", sender: company.senderName || user.name, company: company.name,
+      project: project.siteName, deadline: pkg.deadline || "", sender: company.senderName || user.name, company: company.name,
     });
     const reco = data.recommendations.find((r) => r.supplier.id === s.id);
     await db.insert(schema.invites).values({ packageId: pkg.id, supplierId: s.id, subject: mail.subject, body: mail.body, recommended: reco?.reasons.join("；") || "" });

@@ -22,12 +22,14 @@ export function contractFields(b: Record<string, unknown>): Partial<Row> {
 }
 
 export async function listContracts(db: DB, companyId: string) {
-  const rows = await db.select({ c: schema.contracts, project: schema.projects.name }).from(schema.contracts)
-    .leftJoin(schema.projects, eq(schema.contracts.projectId, schema.projects.id))
+  const rows = await db.select({ c: schema.contracts, project: schema.projects.name, site: schema.sites.name }).from(schema.contracts)
+    .leftJoin(schema.projects, eq(schema.contracts.projectId, schema.projects.id)).leftJoin(schema.sites, eq(schema.projects.siteId, schema.sites.id))
     .where(eq(schema.contracts.companyId, companyId)).orderBy(desc(schema.contracts.signDate), desc(schema.contracts.createdAt));
-  const projects = await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.companyId, companyId)).orderBy(asc(schema.projects.name));
+  const projects = (await db.select({ id: schema.projects.id, name: schema.projects.name, site: schema.sites.name }).from(schema.projects)
+    .innerJoin(schema.sites, eq(schema.projects.siteId, schema.sites.id)).where(eq(schema.projects.companyId, companyId)).orderBy(asc(schema.sites.name), asc(schema.projects.name)))
+    .map((p) => ({ id: p.id, name: `${p.site} · ${p.name}` }));
   const suppliers = await db.select({ id: schema.suppliers.id, name: schema.suppliers.name }).from(schema.suppliers).where(eq(schema.suppliers.companyId, companyId)).orderBy(asc(schema.suppliers.name));
-  return { contracts: rows.map((r) => ({ ...r.c, project: r.project || r.c.projectName })), projects, suppliers };
+  return { contracts: rows.map((r) => ({ ...r.c, project: r.project ? `${r.site} · ${r.project}` : r.c.projectName })), projects, suppliers };
 }
 
 /** Link free-text supplier/project names to existing records where the names match. */
@@ -38,8 +40,10 @@ export async function linkNames(db: DB, companyId: string, row: Partial<Row>) {
     if (hit) row.supplierId = hit.id;
   }
   if (!row.projectId && row.projectName) {
-    const ps = await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.companyId, companyId));
-    const hit = ps.find((p) => p.name.trim().toLowerCase() === row.projectName!.trim().toLowerCase());
+    const ps = await db.select({ id: schema.projects.id, name: schema.projects.name, site: schema.sites.name }).from(schema.projects)
+      .innerJoin(schema.sites, eq(schema.projects.siteId, schema.sites.id)).where(eq(schema.projects.companyId, companyId));
+    const want = row.projectName!.trim().toLowerCase();
+    const hit = ps.find((p) => [p.name, `${p.site} · ${p.name}`].some((n) => n.trim().toLowerCase() === want));
     if (hit) row.projectId = hit.id;
   }
   return row;

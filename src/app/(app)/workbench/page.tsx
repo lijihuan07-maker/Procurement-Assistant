@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Clock, FilePen, FileSignature, FolderPlus, HelpCircle, MailQuestion, Trophy, Upload } from "lucide-react";
+import { ArrowRight, Loader, Clock, FilePen, FileSignature, FolderPlus, HelpCircle, MailQuestion, Trophy, Upload } from "lucide-react";
 import { api, fmt } from "@/lib/client/api";
 import { tm, useLang, useT } from "@/lib/i18n/client";
 import { names } from "@/lib/client/display";
@@ -12,7 +12,7 @@ import { PageHeader, Section, TableFrame, Stats, Empty, StatusChip, Loading, toa
 import { MaterialSearch } from "../suppliers/Materials";
 import type { Msg } from "@/lib/i18n";
 
-type Todo = { kind: "deadline" | "noreply" | "award" | "questions" | "draft" | "contract"; level: "high" | "mid" | "low"; text: Msg; href: string; date?: string };
+type Todo = { kind: "deadline" | "noreply" | "award" | "questions" | "draft" | "contract" | "job"; level: "high" | "mid" | "low"; text: Msg; href: string; date?: string };
 type Data = {
   name: string;
   todos: Todo[];
@@ -21,7 +21,7 @@ type Data = {
   stats: { activeRfqs: number; waiting: number; openQuestions: number; suppliers: number; projects: number };
 };
 
-const ICON = { deadline: Clock, noreply: MailQuestion, award: Trophy, questions: HelpCircle, draft: FilePen, contract: FileSignature };
+const ICON = { deadline: Clock, noreply: MailQuestion, award: Trophy, questions: HelpCircle, draft: FilePen, contract: FileSignature, job: Loader };
 const DOT = { high: "bg-bad", mid: "bg-signal", low: "bg-muted-foreground/40" };
 
 export default function Workbench() {
@@ -38,7 +38,7 @@ export default function Workbench() {
       <PageHeader title={d.name ? `${hello}${lang === "zh" ? "，" : ", "}${d.name}` : T("工作台")}
         actions={<>
           <Link href="/suppliers" className={buttonVariants({ variant: "outline" })}><Upload />{T("导入采购台账")}</Link>
-          <Link href="/projects" className={buttonVariants()}><FolderPlus />{T("新建项目")}</Link>
+          <Link href="/projects?new=1" className={buttonVariants()}><FolderPlus />{T("新建工程项目")}</Link>
         </>}>
         <Stats className="mt-4" items={[
           [T("进行中的询价单"), d.stats.activeRfqs],

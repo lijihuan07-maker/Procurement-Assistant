@@ -37,7 +37,9 @@ async function mock(task: string, mockKey?: string): Promise<unknown> {
   const key = (mockKey || "").toLowerCase();
   const pick = files.find((f) => { const k = f.slice(task.length + 1, -5).toLowerCase(); return k && key.includes(k); }) || files.find((f) => f === `${task}.json`);
   if (!pick) throw new HttpError(500, `没有 ${task} 的模拟结果（${mockKey || ""}）`);
-  await new Promise((r) => setTimeout(r, 300));
+  // Tests can slow one task down (AI_MOCK_SLOW=demand:8000) to exercise background work.
+  const slow = (process.env.AI_MOCK_SLOW || "").split(",").map((x) => x.split(":")).find(([t]) => t === task);
+  await new Promise((r) => setTimeout(r, slow ? Number(slow[1]) || 300 : 300));
   return JSON.parse(await readFile(path.join(dir, pick), "utf8"));
 }
 

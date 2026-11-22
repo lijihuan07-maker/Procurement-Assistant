@@ -1,9 +1,9 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { schema } from "@/db";
 import { route } from "@/lib/http";
 import { msg, type Msg } from "@/lib/i18n";
 
-type Todo = { kind: "deadline" | "noreply" | "award" | "questions" | "draft" | "contract"; level: "high" | "mid" | "low"; text: Msg; href: string; date?: string };
+type Todo = { kind: "deadline" | "noreply" | "award" | "questions" | "draft" | "contract" | "job"; level: "high" | "mid" | "low"; text: Msg; href: string; date?: string };
 
 const day = 864e5;
 const daysBetween = (a: string, b: Date) => Math.round((new Date(a + "T00:00:00").getTime() - new Date(b.toISOString().slice(0, 10) + "T00:00:00").getTime()) / day);
@@ -11,9 +11,10 @@ const daysBetween = (a: string, b: Date) => Math.round((new Date(a + "T00:00:00"
 /** Everything the workbench shows, computed from the company's own data. */
 export const GET = route(async ({ db, user }) => {
   const now = new Date();
-  const projects = await db.select().from(schema.projects).where(eq(schema.projects.companyId, user.companyId));
+  const projects = await db.select({ id: schema.projects.id, name: schema.projects.name, site: schema.sites.name }).from(schema.projects)
+    .innerJoin(schema.sites, eq(schema.projects.siteId, schema.sites.id)).where(eq(schema.projects.companyId, user.companyId));
   const pids = projects.map((p) => p.id);
-  const pname = new Map(projects.map((p) => [p.id, p.name]));
+  const pname = new Map(projects.map((p) => [p.id, `${p.site} · ${p.name}`]));
   const pkgs = pids.length ? await db.select().from(schema.packages).where(inArray(schema.packages.projectId, pids)).orderBy(desc(schema.packages.createdAt)) : [];
   const kids = pkgs.map((p) => p.id);
   const invites = kids.length ? await db.select({ inv: schema.invites, name: schema.suppliers.name, phone: schema.suppliers.phone, email: schema.suppliers.email }).from(schema.invites).innerJoin(schema.suppliers, eq(schema.invites.supplierId, schema.suppliers.id)).where(inArray(schema.invites.packageId, kids)) : [];
@@ -47,10 +48,20 @@ export const GET = route(async ({ db, user }) => {
       }
     }
   }
-  for (const q of openQs) if (q.n > 0) todos.push({ kind: "questions", level: "mid", text: msg("项目 {p} 有 {n} 个问题等工程部确认", { p: pname.get(q.projectId) || "", n: q.n }), href: `/projects/${q.projectId}` });
+  for (const q of openQs) if (q.n > 0) todos.push({ kind: "questions", level: "mid", text: msg("{p} 有 {n} 个问题等工程部确认", { p: pname.get(q.projectId) || "", n: q.n }), href: `/projects/${q.projectId}` });
   const drafts = new Map<string, number>();
   for (const p of pkgs) if (p.status === "draft") drafts.set(p.projectId, (drafts.get(p.projectId) || 0) + 1);
-  for (const [pid, n] of drafts) todos.push({ kind: "draft", level: "low", text: msg("项目 {p} 有 {n} 个询价包还没锁定发出", { p: pname.get(pid) || "", n }), href: `/projects/${pid}` });
+  for (const [pid, n] of drafts) todos.push({ kind: "draft", level: "low", text: msg("{p} 有 {n} 个询价包还没锁定发出", { p: pname.get(pid) || "", n }), href: `/projects/${pid}` });
+  // Demand lists being read in the background, or that failed recently.
+  const jobs = pids.length ? await db.select().from(schema.jobs).where(and(eq(schema.jobs.companyId, user.companyId), gt(schema.jobs.createdAt, new Date(now.getTime() - 3 * day)))).orderBy(desc(schema.jobs.createdAt)) : [];
+  const latest = new Map<string, (typeof jobs)[number]>();
+  for (const j of jobs) if (!latest.has(j.projectId)) latest.set(j.projectId, j);
+  for (const j of latest.values()) {
+    const href = `/projects/${j.projectId}`, p = pname.get(j.projectId) || "";
+    const stale = j.status === "running" && now.getTime() - new Date(j.updatedAt).getTime() > 6 * 60_000;
+    if (j.status === "running" && !stale) todos.push({ kind: "job", level: "low", text: msg("{p}：需求清单正在后台识别（{a}/{n} 部分）", { p, a: j.done, n: j.total }), href });
+    else if (j.status === "failed" || stale) todos.push({ kind: "job", level: "high", text: msg("{p}：需求清单 {f} 没有识别成功，请重新上传", { p, f: j.fileName }), href });
+  }
   // Contracts: unsigned ones after an award, deliveries due within a week or overdue.
   const contracts = await db.select().from(schema.contracts).where(eq(schema.contracts.companyId, user.companyId));
   const pending = contracts.filter((c) => c.status === "pending");

@@ -3,7 +3,7 @@ import { schema } from "@/db";
 import { route, ownProject, HttpError } from "@/lib/http";
 import { askJson } from "@/lib/ai";
 import { clarifyPrompt, standardsContext } from "@/lib/prompts";
-import { parseSpecRef, excerpt } from "@/lib/specs";
+import { parseSpecRef, excerpt, keywordsOf, bestByKeywords, indexSection } from "@/lib/specs";
 import { loadProject } from "@/lib/data";
 
 export const maxDuration = 300;
@@ -18,19 +18,23 @@ export const POST = route(async ({ db, user, params, lang }) => {
   const items = await db.select().from(schema.demandItems).where(eq(schema.demandItems.projectId, params.id)).orderBy(asc(schema.demandItems.seq));
   const qs = items.length ? await db.select().from(schema.clarifications).where(inArray(schema.clarifications.itemId, items.map((i) => i.id))) : [];
 
+  const index = new Map(sections.map((s) => [s, indexSection(s.body)]));
   const work = items.map((it) => {
+    const open = qs.filter((q) => q.itemId === it.id && q.status === "open");
     const ref = parseSpecRef(it.specRef || it.techReq || it.spec);
-    if (!ref) return null;
-    const cands = sections.filter((s) => s.sectionNo.startsWith(ref.base));
-    const sec = cands.find((s) => ref.sub && s.sectionNo === ref.base + ref.sub) || cands[0];
+    const cands = ref ? sections.filter((s) => s.sectionNo.startsWith(ref.base)) : [];
+    let sec: (typeof sections)[number] | undefined = cands.find((s) => ref!.sub && s.sectionNo === ref!.base + ref!.sub) || cands[0];
+    const keys = keywordsOf(it.nameEn, it.nameCn, it.spec.split(/[;,/]/)[0]);
+    // No section number (or a book indexed by page): find the part that talks about this item, but only when there is something to answer.
+    if (!sec && open.length) sec = bestByKeywords(sections, index, keys) || undefined;
     if (!sec) return null;
     return {
       id: it.id, name: `${it.nameCn} ${it.nameEn}`.trim(), spec: it.spec, techReq: it.techReq,
-      questions: qs.filter((q) => q.itemId === it.id && q.status === "open").map((q) => ({ id: q.id, question: q.question, options: q.options })),
-      excerpts: [{ sectionNo: sec.sectionNo, title: sec.title, pages: `${sec.pageFrom}-${sec.pageTo}`, text: excerpt(sec.body, ref.article, [it.nameEn, it.nameCn]) }],
+      questions: open.map((q) => ({ id: q.id, question: q.question, options: q.options })),
+      excerpts: [{ sectionNo: /^p/.test(sec.sectionNo) ? "" : sec.sectionNo, title: sec.title, pages: `${sec.pageFrom}-${sec.pageTo}`, text: excerpt(sec.body, ref?.article || "", [it.nameEn, it.nameCn, ...keys]) }],
     };
   }).filter((x): x is NonNullable<typeof x> => !!x);
-  if (!work.length) throw new HttpError(422, "需求项的规范章节号在规格书里都没有找到对应章节");
+  if (!work.length) throw new HttpError(422, "规格书里没有找到和需求项对应的内容。可以检查需求项的规范章节号，或者上传对应专业的规格书");
 
   let answered = 0;
   for (let i = 0; i < work.length; i += 6) {

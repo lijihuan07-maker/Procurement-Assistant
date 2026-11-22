@@ -12,7 +12,7 @@ export const badgeVariants = cva("inline-flex items-center gap-1 whitespace-nowr
       warn: "border-transparent bg-warn-soft text-warn",
       bad: "border-transparent bg-bad-soft text-bad",
       info: "border-transparent bg-info-soft text-info",
-      signal: "border-transparent bg-signal-soft text-[#7a5200]",
+      signal: "border-transparent bg-signal-soft text-foreground",
     },
   },
   defaultVariants: { variant: "default" },

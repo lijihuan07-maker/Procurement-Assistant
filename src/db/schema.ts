@@ -33,17 +33,56 @@ export const sessions = pgTable("sessions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
-export const projects = pgTable("projects", {
+/** An engineering project (工程项目), e.g. a villa compound or a seawater cooling plant. Holds the site location and its standards. */
+export const sites = pgTable("sites", {
   id: id(),
   companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   location: text("location").notNull().default(""),
   owner: text("owner").notNull().default(""),
-  demandFileName: text("demand_file_name"),
   /** Material standards that apply where the project is, identified by AI from the location. */
   standards: jsonb("standards").$type<ProjectStandards | null>(),
   createdAt: createdAt(),
-}, (t) => [index("projects_company_idx").on(t.companyId)]);
+}, (t) => [index("sites_company_idx").on(t.companyId)]);
+
+/** A procurement requirement (采购需求) inside an engineering project: one demand list, its specs, packages and RFQ settings. */
+export const projects = pgTable("projects", {
+  id: id(),
+  companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  kind: text("kind").notNull().default("material"), // material | subcontract | rental | service
+  demandFileName: text("demand_file_name"),
+  /** RFQ numbering, terms and templates for this requirement; copied from an earlier one when created from a template. */
+  settings: jsonb("settings").$type<ReqSettings | null>(),
+  createdAt: createdAt(),
+}, (t) => [index("projects_company_idx").on(t.companyId), index("projects_site_idx").on(t.siteId)]);
+
+/** Long-running work done on the server (reading a demand list), so it finishes even if the user leaves the page. */
+export const jobs = pgTable("jobs", {
+  id: id(),
+  companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull().default("demand"),
+  status: text("status").notNull().default("running"), // running | done | failed | cancelled
+  fileName: text("file_name").notNull().default(""),
+  total: integer("total").notNull().default(1),
+  done: integer("done").notNull().default(0),
+  failed: integer("failed").notNull().default(0),
+  error: text("error"),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index("jobs_project_idx").on(t.projectId)]);
+
+export const jobParts = pgTable("job_parts", {
+  id: id(),
+  jobId: text("job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  idx: integer("idx").notNull(),
+  input: jsonb("input").$type<Record<string, unknown> | null>(),
+  items: jsonb("items").$type<unknown[] | null>(),
+  status: text("status").notNull().default("pending"), // pending | done | failed
+  error: text("error"),
+}, (t) => [index("job_parts_job_idx").on(t.jobId)]);
 
 export const packages = pgTable("packages", {
   id: id(),
@@ -216,6 +255,11 @@ export type QuoteData = {
 };
 export type RfqTemplate = { fileName: string; titleSuffix: string; headerLines: string[]; blocks: { label: string; values: string[] }[]; fileB64?: string };
 export type EmailTemplate = { subject: string; body: string };
+export type ReqSettings = {
+  rfqPrefix: string; rfqStart: number; rfqPad: number;
+  currency: string; vatRate: number; paymentTerms: string; validity: string;
+  rfqTemplate: RfqTemplate | null; email: EmailTemplate | null;
+};
 
 export type ProjectStandards = {
   location: string; // the location text these were identified for

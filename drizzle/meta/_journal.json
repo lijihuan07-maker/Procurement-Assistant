@@ -29,6 +29,20 @@
       "when": 1795365803410,
       "tag": "0003_contracts_standards",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795367659292,
+      "tag": "0004_sites_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795367668126,
+      "tag": "0005_drop_project_location",
+      "breakpoints": true
     }
   ]
 }

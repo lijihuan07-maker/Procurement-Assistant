@@ -4,6 +4,7 @@ import { ToastHost } from "@/components/app";
 import { I18nProvider } from "@/lib/i18n/client";
 import { getLang } from "@/lib/i18n/server";
 import { translate, langInfo } from "@/lib/i18n";
+import { PREFS_SCRIPT } from "@/lib/client/prefs";
 
 export async function generateMetadata(): Promise<Metadata> {
   const lang = await getLang();
@@ -13,7 +14,8 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const lang = await getLang();
   return (
-    <html lang={langInfo(lang).html} dir={langInfo(lang).dir}>
+    <html lang={langInfo(lang).html} dir={langInfo(lang).dir} suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: PREFS_SCRIPT }} /></head>
       <body>
         <I18nProvider lang={lang}>
           {children}

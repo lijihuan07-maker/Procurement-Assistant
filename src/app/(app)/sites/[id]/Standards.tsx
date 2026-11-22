@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Busy, useBusy } from "@/components/app";
-import type { ProjectData } from "@/lib/client/types";
+import type { SiteData } from "@/lib/client/types";
 
-/** The material standards that apply at the project location, identified by AI and refreshed when the location changes. */
-export function Standards({ d, setD }: { d: ProjectData; setD: (d: ProjectData) => void }) {
+/** The material standards that apply at the engineering project's location, identified by AI and refreshed when the location changes. */
+export function Standards({ d, setD }: { d: SiteData; setD: (d: SiteData) => void }) {
   const T = useT();
-  const p = d.project;
+  const p = d.site;
   const s = p.standards;
   const { busy, run } = useBusy();
   const [open, setOpen] = useState(false);
@@ -23,7 +23,7 @@ export function Standards({ d, setD }: { d: ProjectData; setD: (d: ProjectData) 
 
   async function detect() {
     tried.current = p.location;
-    const r = await run(T("正在识别 {l} 的材料标准体系…", { l: p.location }), () => api<ProjectData>(`/api/projects/${p.id}/standards`, { body: {} }));
+    const r = await run(T("正在识别 {l} 的材料标准体系…", { l: p.location }), () => api<SiteData>(`/api/sites/${p.id}/standards`, { body: {} }));
     if (r) setD(r);
   }
   // First visit after the location is set (or changed): identify automatically, once.
@@ -31,7 +31,7 @@ export function Standards({ d, setD }: { d: ProjectData; setD: (d: ProjectData) 
 
   async function saveLocation(e: React.FormEvent) {
     e.preventDefault();
-    const r = await run(T("保存中…"), () => api<ProjectData>(`/api/projects/${p.id}`, { method: "PATCH", body: { location: loc } }));
+    const r = await run(T("保存中…"), () => api<SiteData>(`/api/sites/${p.id}`, { method: "PATCH", body: { location: loc } }));
     if (r) { setD(r); setEditing(false); }
   }
 
@@ -61,7 +61,7 @@ export function Standards({ d, setD }: { d: ProjectData; setD: (d: ProjectData) 
         )}
       </div>
       <div className="mt-3 grid gap-3 ps-11">
-        {(!p.location || editing) && <>{!p.location && <p className="text-[13px] text-muted-foreground">{T("填写项目地点后，AI 会识别当地适用的材料标准和认证，并在澄清需求、写询价单时参考。")}</p>}{locationForm}</>}
+        {(!p.location || editing) && <>{!p.location && <p className="text-[13px] text-muted-foreground">{T("填写项目地点后，AI 会识别当地适用的材料标准和认证，这个工程项目下的采购需求在澄清需求、写询价单时都会参考。")}</p>}{locationForm}</>}
         <Busy text={busy} />
         {s && !stale && !busy && (
           <>

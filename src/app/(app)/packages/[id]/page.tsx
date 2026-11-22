@@ -12,6 +12,7 @@ import { useBusy, Busy, StatusChip, toast, copyText, PageHeader, Section, TableF
 import { Discover } from "@/components/Discover";
 import type { PackageData } from "@/lib/client/types";
 import { Compare } from "./Compare";
+import { announceSite } from "../../Shell";
 import { type Ctx, rfqBlob, rfqFileName } from "./shared";
 
 type Tab = "rfq" | "suppliers" | "quotes";
@@ -23,7 +24,7 @@ export default function PackagePage({ params }: { params: Promise<{ id: string }
   const [d, setD] = useState<PackageData | null>(null);
   const [tab, setTab] = useState<Tab>("rfq");
   const { busy, run } = useBusy();
-  useEffect(() => { preloadParsers(); api<PackageData>(`/api/packages/${id}`).then((x) => { setD(x); if (x.quotes.length) setTab("quotes"); else if (x.invites.length) setTab("suppliers"); }).catch((e) => toast(e.message, true)); }, [id]);
+  useEffect(() => { preloadParsers(); api<PackageData>(`/api/packages/${id}`).then((x) => { setD(x); announceSite(x.project.siteId); if (x.quotes.length) setTab("quotes"); else if (x.invites.length) setTab("suppliers"); }).catch((e) => toast(e.message, true)); }, [id]);
   if (!d) return <Loading />;
   const p = d.pkg;
   const locked = p.status !== "draft";
@@ -31,7 +32,7 @@ export default function PackagePage({ params }: { params: Promise<{ id: string }
   const sent = d.invites.filter((i) => i.status === "sent").length;
   return (
     <>
-      <PageHeader crumbs={[{ href: "/projects", label: T("项目") }, { href: `/projects/${d.project.id}`, label: d.project.name }]}
+      <PageHeader crumbs={[{ href: "/projects", label: T("项目") }, { href: `/sites/${d.project.siteId}`, label: d.project.siteName }, { href: `/projects/${d.project.id}`, label: d.project.name }]}
         title={<span className="flex flex-wrap items-center gap-3">{title}<StatusChip status={p.status} /></span>}
         facts={[[T("询价单编号"), p.rfqNo ? <span className="num">{p.rfqNo}</span> : null], [T("英文标题"), lang === "zh" ? sub : null], [T("报价截止"), p.deadline && locked ? <span className="num">{p.deadline}</span> : null]]}
         actions={<Busy text={busy} />} />
@@ -52,11 +53,11 @@ function Rfq({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
   const T = useT();
   const p = d.pkg;
   const [deadline, setDeadline] = useState(p.deadline || new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10));
-  const nextNo = d.company.rfqPrefix + String(d.company.rfqNextNo).padStart(d.company.rfqPad, "0");
+  const nextNo = d.nextRfqNo;
   const [rfqNo, setRfqNo] = useState(nextNo);
   const [title, setTitle] = useState({ cn: p.titleCn, en: p.titleEn });
   const dirty = title.cn !== p.titleCn || title.en !== p.titleEn;
-  const placeholder = /\*{2,}/.test(d.company.paymentTerms);
+  const placeholder = /\*{2,}/.test(d.settings.paymentTerms);
   const saveTitle = () => api<PackageData>(`/api/packages/${p.id}`, { method: "PATCH", body: { titleCn: title.cn.trim(), titleEn: title.en.trim() } });
   async function suggest() {
     const r = await run(T("AI 起名中…"), () => api<{ titleCn: string; titleEn: string }>(`/api/packages/${p.id}/suggest-title`, { method: "POST" }));
@@ -65,7 +66,7 @@ function Rfq({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
   async function unlock() {
     if (!window.confirm?.(T("解锁后询价单回到草稿状态，可以改编号、名称和内容；已生成但未发送的询价邮件会被删除。继续？"))) return;
     const r = await run(T("解锁中…"), () => api<PackageData>(`/api/packages/${p.id}/unlock`, { method: "POST" }), T("已解锁"));
-    if (r) { setD(r); setTitle({ cn: r.pkg.titleCn, en: r.pkg.titleEn }); setRfqNo(r.company.rfqPrefix + String(r.company.rfqNextNo).padStart(r.company.rfqPad, "0")); }
+    if (r) { setD(r); setTitle({ cn: r.pkg.titleCn, en: r.pkg.titleEn }); setRfqNo(r.nextRfqNo); }
   }
   async function lock() {
     const r = await run(T("锁定中…"), async () => {
@@ -109,7 +110,7 @@ function Rfq({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
     <>
       <Section title={T("确认询价单内容")} description={T("锁定后询价内容随之固定，之后收到的报价都和这份内容对比。要调整需求项，请回到项目的“询价包”页。")}>
         <div className="grid gap-5">
-          {placeholder && <Banner>{T("公司设置里的付款条款还有 “***%” 这样的占位符，锁定前请先到“设置与模板”里改好。")}</Banner>}
+          {placeholder && <Banner>{T("采购需求的付款条款里还有 “***%” 这样的占位符，锁定前请先到采购需求的“询价设置与模板”里改好。")}</Banner>}
           <div className="grid gap-4 md:grid-cols-2">
             <Field label={T("询价单名称（中文）")}><Input id="title-cn" value={title.cn} onChange={(e) => setTitle({ ...title, cn: e.target.value })} /></Field>
             <Field label={T("询价单名称（英文，写进 Excel 标题）")}><Input id="title-en" value={title.en} onChange={(e) => setTitle({ ...title, en: e.target.value })} /></Field>
@@ -120,11 +121,11 @@ function Rfq({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
             {dirty && <span className="text-xs text-warn">{T("名称还没保存")}</span>}
           </div>
           <div className="grid gap-4 border-t pt-5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-end">
-            <Field label={T("询价单编号（可修改，默认按公司编号顺延）")}><Input id="rfq-no" value={rfqNo} onChange={(e) => setRfqNo(e.target.value)} className="num" /></Field>
+            <Field label={T("询价单编号（可修改，默认按编号规则顺延）")}><Input id="rfq-no" value={rfqNo} onChange={(e) => setRfqNo(e.target.value)} className="num" /></Field>
             <Field label={T("报价截止日期")}><Input id="deadline" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></Field>
             <Button size="lg" disabled={!!busy || !d.lines.length} onClick={lock}><Lock />{T("锁定询价单")}</Button>
           </div>
-          <p className="text-xs text-muted-foreground">{T("模板：")}{d.rfqTemplate ? T("沿用 {f}", { f: d.rfqTemplate.fileName }) : T("系统默认格式（可在“设置与模板”上传你们的询价单）")}</p>
+          <p className="text-xs text-muted-foreground">{T("模板：")}{d.rfqTemplate ? T("沿用 {f}", { f: d.rfqTemplate.fileName }) : T("系统默认格式（可在采购需求的“询价设置与模板”里上传你们的询价单）")}</p>
         </div>
       </Section>
       {lines}

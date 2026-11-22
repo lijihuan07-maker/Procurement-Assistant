@@ -2,9 +2,15 @@ import "server-only";
 import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { schema, type DB } from "@/db";
 import type { RfqLine, RfqSnapshot } from "@/db/schema";
+import { settingsOf } from "./settings";
 
 export async function loadProject(db: DB, projectId: string) {
-  const [project] = await db.select().from(schema.projects).where(eq(schema.projects.id, projectId));
+  const [r] = await db.select({ p: schema.projects, s: schema.sites, c: schema.companies }).from(schema.projects)
+    .innerJoin(schema.sites, eq(schema.projects.siteId, schema.sites.id)).innerJoin(schema.companies, eq(schema.projects.companyId, schema.companies.id))
+    .where(eq(schema.projects.id, projectId));
+  const { settings: _raw, ...base } = r.p; // eslint-disable-line @typescript-eslint/no-unused-vars
+  const project = { ...base, siteName: r.s.name, location: r.s.location, owner: r.s.owner, standards: r.s.standards };
+  const settings = settingsOf(r.p, r.c);
   const items = await db.select().from(schema.demandItems).where(eq(schema.demandItems.projectId, projectId)).orderBy(asc(schema.demandItems.seq));
   const ids = items.map((i) => i.id);
   const qs = ids.length ? await db.select().from(schema.clarifications).where(inArray(schema.clarifications.itemId, ids)) : [];
@@ -12,14 +18,26 @@ export async function loadProject(db: DB, projectId: string) {
   const specDocs = await db.select({
     id: schema.specDocs.id, fileName: schema.specDocs.fileName, pages: schema.specDocs.pages, createdAt: schema.specDocs.createdAt,
     sections: sql<number>`(select count(*)::int from spec_sections s where s.doc_id = spec_docs.id)`,
+    byPage: sql<boolean>`exists(select 1 from spec_sections s where s.doc_id = spec_docs.id and s.section_no like 'p%')`,
   }).from(schema.specDocs).where(eq(schema.specDocs.projectId, projectId)).orderBy(desc(schema.specDocs.createdAt));
   const quoteCounts = packages.length ? await db.select({ packageId: schema.quotes.packageId, n: sql<number>`count(*)::int` }).from(schema.quotes).where(inArray(schema.quotes.packageId, packages.map((p) => p.id))).groupBy(schema.quotes.packageId) : [];
   return {
-    project,
+    project, site: r.s, settings, job: await currentJob(db, projectId),
     items: items.map((i) => ({ ...i, questions: qs.filter((q) => q.itemId === i.id) })),
     packages: packages.map((p) => ({ id: p.id, code: p.code, titleCn: p.titleCn, titleEn: p.titleEn, supplierType: p.supplierType, reason: p.reason, status: p.status, rfqNo: p.rfqNo, deadline: p.deadline, quotes: quoteCounts.find((c) => c.packageId === p.id)?.n ?? 0 })),
     specDocs,
   };
+}
+
+/** The latest demand-reading job of a requirement, if it is still running or failed recently. A job with no progress for 6 minutes is treated as failed. */
+export async function currentJob(db: DB, projectId: string) {
+  const [j] = await db.select().from(schema.jobs).where(eq(schema.jobs.projectId, projectId)).orderBy(desc(schema.jobs.createdAt)).limit(1);
+  if (!j || j.status === "cancelled") return null;
+  if (j.status === "running" && Date.now() - new Date(j.updatedAt).getTime() > 6 * 60_000) {
+    await db.update(schema.jobs).set({ status: "failed", error: "识别中断了，请重新上传需求清单" }).where(eq(schema.jobs.id, j.id));
+    j.status = "failed"; j.error = "识别中断了，请重新上传需求清单";
+  }
+  return { id: j.id, status: j.status, fileName: j.fileName, total: j.total, done: j.done, failed: j.failed, error: j.error, createdAt: j.createdAt, updatedAt: j.updatedAt };
 }
 
 /** Spec text for an RFQ line: the item's own spec plus confirmed clarification answers. */

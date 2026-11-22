@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 @import "@fontsource/ibm-plex-sans/400.css";
 @import "@fontsource/ibm-plex-sans/500.css";
 @import "@fontsource/ibm-plex-sans/600.css";
@@ -15,7 +16,8 @@
   --card-foreground: #1b2433;
   --popover: #ffffff;
   --popover-foreground: #1b2433;
-  --primary: #13203b;         /* blueprint ink */
+  --brand: #13203b;           /* theme colour (Settings): blueprint ink by default */
+  --primary: var(--brand);
   --primary-foreground: #ffffff;
   --secondary: #eef0f4;
   --secondary-foreground: #1b2433;
@@ -26,9 +28,9 @@
   --destructive: #c0352b;
   --border: #e1e4ea;
   --input: #d5d9e1;
-  --ring: #3d5a99;
-  --signal: #f0a202;          /* the one accent: current stage, best price */
-  --signal-soft: #fff4d6;
+  --ring: color-mix(in srgb, var(--brand) 45%, #6f8fd6);
+  --signal: #f0a202;          /* the one accent (Settings): current stage, best price */
+  --signal-soft: color-mix(in srgb, var(--signal) 16%, #ffffff);
   --good: #18794e;
   --good-soft: #e7f5ee;
   --warn: #a35a00;
@@ -37,9 +39,46 @@
   --bad-soft: #fbeceb;
   --info: #2b59c3;
   --info-soft: #eaf0fc;
-  --sidebar: #13203b;
-  --sidebar-foreground: #c9d1e0;
-  --sidebar-active: #22325a;
+  --sidebar: var(--brand);
+  --sidebar-foreground: color-mix(in srgb, var(--brand) 22%, #e3e8f1);
+  --sidebar-active: color-mix(in srgb, var(--brand) 80%, #ffffff);
+  --row-hover: #fafbfc;
+}
+
+/* Dark mode (Settings → mode). The theme colour tints the sidebar; buttons turn light. */
+html.dark {
+  color-scheme: dark;
+  --background: #0e131b;
+  --foreground: #e3e8f0;
+  --card: #161c26;
+  --card-foreground: #e3e8f0;
+  --popover: #1a212c;
+  --popover-foreground: #e3e8f0;
+  --primary: color-mix(in srgb, var(--brand) 22%, #e8edf6);
+  --primary-foreground: #0e131b;
+  --secondary: #222a36;
+  --secondary-foreground: #e3e8f0;
+  --muted: #1b222d;
+  --muted-foreground: #98a3b5;
+  --accent: #222a36;
+  --accent-foreground: #e3e8f0;
+  --destructive: #ef6a5f;
+  --border: #2a3341;
+  --input: #364152;
+  --ring: color-mix(in srgb, var(--brand) 30%, #8fb0f0);
+  --signal-soft: color-mix(in srgb, var(--signal) 22%, #161c26);
+  --good: #4cc38a;
+  --good-soft: #13301f;
+  --warn: #e9a640;
+  --warn-soft: #33260f;
+  --bad: #f07167;
+  --bad-soft: #3a1815;
+  --info: #7aa5f8;
+  --info-soft: #172441;
+  --sidebar: color-mix(in srgb, var(--brand) 55%, #05080d);
+  --sidebar-foreground: #b4bdcc;
+  --sidebar-active: color-mix(in srgb, var(--brand) 50%, #2b3445);
+  --row-hover: #1b222d;
 }
 
 @theme inline {
@@ -105,7 +144,7 @@
   .data-table th { @apply sticky top-0 z-[1] bg-muted px-3 py-2 text-start text-xs font-medium whitespace-nowrap text-muted-foreground border-b; }
   .data-table td { @apply px-3 py-2.5 align-top border-b; }
   .data-table tbody tr:last-child td { @apply border-b-0; }
-  .data-table tbody tr:hover td { background: #fafbfc; }
+  .data-table tbody tr:hover td { background: var(--row-hover); }
   .data-table tfoot td { @apply bg-muted font-medium border-t border-b-0; }
   .data-table .n { @apply text-end whitespace-nowrap; font-variant-numeric: tabular-nums; }
   .data-table .sl { @apply border-s; }

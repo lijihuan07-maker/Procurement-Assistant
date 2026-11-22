@@ -20,7 +20,7 @@ export const POST = route(async ({ req, db, user, params }) => {
     const [d] = await db.insert(schema.specDocs).values({ projectId: params.id, fileName: String(b.fileName || "规格书.pdf"), pages: Number(b.pages) || 0 }).returning();
     docId = d.id;
   }
-  const rows = b.sections.filter((s) => /^\d{6,8}$/.test(String(s.sectionNo))).map((s) => ({
+  const rows = b.sections.filter((s) => /^(\d{6,8}|p\d+)$/.test(String(s.sectionNo))).map((s) => ({
     docId: docId!, sectionNo: String(s.sectionNo), title: String(s.title || "").slice(0, 200), pageFrom: Number(s.pageFrom) || 0, pageTo: Number(s.pageTo) || 0, body: String(s.body || "").slice(0, 80000),
   }));
   for (let i = 0; i < rows.length; i += 50) await db.insert(schema.specSections).values(rows.slice(i, i + 50));

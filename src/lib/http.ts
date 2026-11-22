@@ -45,17 +45,28 @@ export async function body<T = Record<string, unknown>>(req: Request): Promise<T
 }
 
 /* ---- ownership guards: every lookup is scoped to the user's company ---- */
+/** A requirement with its engineering project's location, owner and standards merged in. */
 export async function ownProject(db: DB, user: SessionUser, projectId: string) {
-  const [p] = await db.select().from(schema.projects).where(and(eq(schema.projects.id, projectId), eq(schema.projects.companyId, user.companyId)));
-  if (!p) throw new HttpError(404, "项目不存在");
-  return p;
+  const [r] = await db.select({ p: schema.projects, s: schema.sites }).from(schema.projects).innerJoin(schema.sites, eq(schema.projects.siteId, schema.sites.id))
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.companyId, user.companyId)));
+  if (!r) throw new HttpError(404, "采购需求不存在");
+  return withSite(r.p, r.s);
+}
+export function withSite(p: typeof schema.projects.$inferSelect, s: typeof schema.sites.$inferSelect) {
+  return { ...p, siteName: s.name, location: s.location, owner: s.owner, standards: s.standards };
+}
+export async function ownSite(db: DB, user: SessionUser, siteId: string) {
+  const [s] = await db.select().from(schema.sites).where(and(eq(schema.sites.id, siteId), eq(schema.sites.companyId, user.companyId)));
+  if (!s) throw new HttpError(404, "工程项目不存在");
+  return s;
 }
 export async function ownPackage(db: DB, user: SessionUser, packageId: string) {
-  const [row] = await db.select({ pkg: schema.packages, project: schema.projects }).from(schema.packages)
+  const [row] = await db.select({ pkg: schema.packages, project: schema.projects, site: schema.sites }).from(schema.packages)
     .innerJoin(schema.projects, eq(schema.packages.projectId, schema.projects.id))
+    .innerJoin(schema.sites, eq(schema.projects.siteId, schema.sites.id))
     .where(and(eq(schema.packages.id, packageId), eq(schema.projects.companyId, user.companyId)));
   if (!row) throw new HttpError(404, "询价包不存在");
-  return row;
+  return { pkg: row.pkg, project: withSite(row.project, row.site) };
 }
 export async function ownCompany(db: DB, user: SessionUser) {
   const [c] = await db.select().from(schema.companies).where(eq(schema.companies.id, user.companyId));

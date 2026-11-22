@@ -17,7 +17,7 @@ export function ToastHost() {
   useEffect(() => { if (!m) return; const h = setTimeout(() => setM(null), m.err ? 7000 : 3000); return () => clearTimeout(h); }, [m]);
   if (!m) return null;
   return (
-    <div role="status" key={m.id} className={cn("fixed bottom-6 left-1/2 z-[60] flex max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 items-start gap-2 rounded-lg px-4 py-2.5 text-[13px] text-white shadow-xl shadow-black/20 [animation:toast-in_.18s_ease-out]", m.err ? "bg-bad" : "bg-primary")}>
+    <div role="status" key={m.id} className={cn("fixed bottom-6 left-1/2 z-[60] flex max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 items-start gap-2 rounded-lg px-4 py-2.5 text-[13px] text-white shadow-xl shadow-black/20 [animation:toast-in_.18s_ease-out]", m.err ? "bg-bad" : "bg-sidebar")}>
       {m.err ? <CircleAlert className="mt-0.5 size-4 shrink-0" /> : <CircleCheck className="mt-0.5 size-4 shrink-0 text-signal" />}
       <span>{m.msg}</span>
     </div>
@@ -138,7 +138,7 @@ export function Stages({ stages, current, onSelect }: { stages: Stage[]; current
         return (
           <button key={s.key} role="tab" aria-selected={on} disabled={s.disabled} onClick={() => onSelect(s.key)}
             className={cn("relative flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-4 py-3 text-start text-[13px] whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-45", i > 0 && "border-s", on ? "bg-card" : "bg-muted/60 hover:bg-muted")}>
-            <span className={cn("grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold num", on ? "bg-primary text-white ring-[3px] ring-signal" : s.done ? "bg-primary text-white" : "border border-input bg-card text-muted-foreground")}>
+            <span className={cn("grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold num", on ? "bg-primary text-primary-foreground ring-[3px] ring-signal" : s.done ? "bg-primary text-primary-foreground" : "border border-input bg-card text-muted-foreground")}>
               {s.done && !on ? <Check className="size-3.5" /> : i + 1}
             </span>
             <span className={cn("font-medium", on ? "text-foreground" : "text-muted-foreground")}>{s.label}</span>

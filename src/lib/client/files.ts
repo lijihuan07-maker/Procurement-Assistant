@@ -1,5 +1,6 @@
 "use client";
-import type { AiImage } from "@/lib/ai-types";
+import type { AiImage, DemandPart } from "@/lib/ai-types";
+export type { DemandPart };
 import { t } from "@/lib/i18n/client";
 
 const MAX_IMAGE_BYTES = 3_200_000; // keep each request under hosting body limits
@@ -118,21 +119,40 @@ export async function readForAi(file: File): Promise<{ text: string; images: AiI
 }
 
 /* ---------- demand lists: split long lists into parts the AI can read in parallel ---------- */
-export type DemandPart = { part: number; parts: number; context: string; rows: string; images: AiImage[] };
 const ROWS_PER_PART = 22, SINGLE_LIMIT = 36, CONTEXT_ROWS = 8;
 
 function cellText(v: unknown) {
   return String(v ?? "").replace(/=?_?x?l?f?n?\.?DISPIMG\([^)]*\)/g, "[图片]").replace(/\s*\n\s*/g, " / ").trim();
 }
 
-/** Every row gets an id (R<excel row> or L<line>) so items from overlapping context can be dropped after parsing. */
-export async function readDemand(file: File): Promise<DemandPart[]> {
+export type SheetInfo = { name: string; hidden: boolean; rows: number; items: number; preview: string };
+
+/** The worksheets of a workbook that have content, so the user can pick which ones are the demand list. */
+export async function listSheets(file: File): Promise<SheetInfo[]> {
+  if (!isSheet(file) || /\.csv$/i.test(file.name)) return [];
+  const XLSX = await xlsxLib();
+  const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const out: SheetInfo[] = [];
+  wb.SheetNames.forEach((name, i) => {
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false, blankrows: false }) as unknown[][];
+    const rows = raw.map((r) => r.map(cellText)).filter((r) => r.some((c) => c && c !== "[图片]"));
+    if (!rows.length) return;
+    // Item rows: a serial number followed by a name ("以下空白" marks the end of a form).
+    const items = rows.filter((r) => /^\d{1,4}$/.test(r[0]) && r.slice(1).find(Boolean) && !/以下空白/.test(r.slice(1).find(Boolean)!));
+    out.push({ name, hidden: !!wb.Workbook?.Sheets?.[i]?.Hidden, rows: rows.length, items: items.length, preview: items.slice(0, 4).map((r) => r.slice(1).find(Boolean)!).join(" / ").slice(0, 160) });
+  });
+  return out;
+}
+
+/** Every row gets an id (R<excel row> or L<line>) so items from overlapping context can be dropped after parsing. Hidden worksheets are skipped unless picked. */
+export async function readDemand(file: File, pick?: string[]): Promise<DemandPart[]> {
   type Sheet = { name: string; rows: string[] };
   let sheets: Sheet[] = [];
   if (isSheet(file)) {
     const XLSX = await xlsxLib();
     const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    for (const name of wb.SheetNames) {
+    for (const [i, name] of wb.SheetNames.entries()) {
+      if (pick ? !pick.includes(name) : !!wb.Workbook?.Sheets?.[i]?.Hidden) continue;
       const raw = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false, blankrows: true }) as unknown[][];
       const rows: string[] = [];
       raw.forEach((r, i) => {
