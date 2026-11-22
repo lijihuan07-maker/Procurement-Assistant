@@ -4,7 +4,7 @@ import type { compute } from "@/lib/compare";
 import { t as tr, lang } from "@/lib/i18n/client";
 
 /** Bilingual label for Chinese users ("English\n（中文）"); English only otherwise. */
-const bi = (en: string, zh: string, paren = true) => (lang() === "zh" ? `${en}\n${paren ? `（${zh}）` : zh}` : en);
+const biLabel = (en: string, zh: string, paren = true) => (lang() === "zh" ? `${en}\n${paren ? `（${zh}）` : zh}` : en);
 
 type ExcelJSNS = typeof import("exceljs");
 async function lib(): Promise<ExcelJSNS> { const m = await import("exceljs"); return ((m as unknown as { default?: ExcelJSNS }).default ?? m) as ExcelJSNS; }
@@ -55,7 +55,7 @@ const DEFAULT_TERMS = [
   "7. Rejected materials shall be replaced at the Supplier's cost within 3 days.",
   "8. Risk of loss and damage remains with the Supplier until the materials are delivered and accepted on site.",
 ];
-const DEFAULT_BLOCKS = () => [
+const DEFAULT_BLOCKS = (bi: (en: string, zh: string) => string) => [
   { label: bi("INCOTERMS", "贸易术语"), values: ["DDP – delivered to project site"] },
   { label: bi("Delivery location", "交货地点"), values: ["Project site; the exact location will be given in the Buyer's written notice."] },
   { label: bi("Delivery period", "交货期"), values: ["As per the Buyer's written notice."] },
@@ -70,10 +70,12 @@ const QUOTE_NOTES = [
   "3. State minimum order quantities, if any. Fill in the company name, quotation date, signature and stamp.",
 ];
 
-export type RfqDoc = { rfqNo: string; titleCn: string; titleEn: string; project: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[]; standards?: string[]; template: RfqTemplate | null };
+/** english: English only (labels and content; `extra` maps Chinese text found in the template file to English); otherwise labels follow the interface language (Chinese → bilingual). */
+export type RfqDoc = { english?: boolean; extra?: Record<string, string>; rfqNo: string; titleCn: string; titleEn: string; project: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[]; standards?: string[]; template: RfqTemplate | null };
 
 export async function buildRfq(d: RfqDoc): Promise<Blob> {
   if (d.template?.fileB64) return buildFromTemplate(d, d.template.fileB64);
+  const bi = (en: string, zh: string, paren = true) => (d.english ? en : biLabel(en, zh, paren));
   const ExcelJS = await lib();
   const vatPct = Math.round(d.vatRate * 10000) / 100;
   const wb = new ExcelJS.Workbook();
@@ -82,7 +84,8 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   let r = 1;
   const line = (text: string, font: object = XF, h?: number) => { const c = ws.getCell(r, 1); c.value = text; c.font = font; c.alignment = { wrapText: true, vertical: "middle" }; ws.mergeCells(r, 1, r, 12); if (h) ws.getRow(r).height = h; r++; };
   const tpl = d.template;
-  const suffix = tpl?.titleSuffix || d.project || "";
+  const suffix0 = tpl?.titleSuffix || d.project || "";
+  const suffix = d.english ? d.extra?.[suffix0] ?? suffix0 : suffix0;
   line(`RFQ for ${d.titleEn || d.titleCn}${suffix ? " - " + suffix : ""}`, { ...XB, size: 13 }, 34);
   (tpl?.headerLines?.length ? tpl.headerLines : [d.project ? `Project Name: ${d.project}` : ""]).filter(Boolean).forEach((s) => line(s));
   line(`Request: ${d.titleEn || ""}${d.titleCn && lang() === "zh" ? "（" + d.titleCn + "）" : ""}`, XB);
@@ -93,7 +96,7 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   ws.mergeCells(r, 2, r, 3); ws.getRow(r).height = 44; r++;
   const first = r;
   d.lines.forEach((ln) => {
-    const nameParts = ln.name.split(/\s+(?=[A-Z0-9])/);
+    const nameParts = d.english ? [ln.name] : ln.name.split(/\s+(?=[A-Z0-9])/);
     const vals: unknown[] = [Number(ln.no), nameParts.length > 1 ? `${nameParts[0]}\n${nameParts.slice(1).join(" ")}` : ln.name, ln.spec, ln.unit, ln.qty, null,
       { formula: `ROUND(F${r}*${d.vatRate},2)` }, { formula: `F${r}+G${r}` }, { formula: `E${r}*G${r}` }, { formula: `E${r}*H${r}` }, ln.techReq, null];
     vals.forEach((v, i) => { const c = ws.getCell(r, i + 1); c.value = v as never; c.font = XF; c.border = BOX; c.alignment = { wrapText: true, vertical: "middle", horizontal: i === 0 || i === 3 ? "center" : i >= 4 && i <= 9 ? "right" : "left" }; });
@@ -105,7 +108,7 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   });
   const last = r - 1;
   for (let i = 1; i <= 12; i++) ws.getCell(r, i).border = BOX;
-  ws.getCell(r, 1).value = lang() === "zh" ? "In Total（含税合计）" : "In Total"; ws.getCell(r, 1).font = XB; ws.getCell(r, 1).alignment = { horizontal: "right", vertical: "middle" }; ws.mergeCells(r, 1, r, 9);
+  ws.getCell(r, 1).value = lang() === "zh" && !d.english ? "In Total（含税合计）" : "In Total"; ws.getCell(r, 1).font = XB; ws.getCell(r, 1).alignment = { horizontal: "right", vertical: "middle" }; ws.mergeCells(r, 1, r, 9);
   const tc = ws.getCell(r, 10); tc.value = { formula: `SUM(J${first}:J${last})` } as never; tc.font = XB; tc.numFmt = "#,##0.00";
   ws.getRow(r).height = 24; r++;
   const block = (label: string, values: string[]) => {
@@ -120,7 +123,7 @@ export async function buildRfq(d: RfqDoc): Promise<Blob> {
   };
   const fmtDate = (s: string) => (s ? s.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, "$1.$2.$3") : "");
   const seen = { deadline: false, valid: false, pay: false };
-  (tpl?.blocks?.length ? tpl.blocks : DEFAULT_BLOCKS()).forEach((b) => {
+  (tpl?.blocks?.length ? tpl.blocks : DEFAULT_BLOCKS(bi)).forEach((b) => {
     const L = b.label;
     if (/deadline|截止/i.test(L)) { block(L, [fmtDate(d.deadline)]); seen.deadline = true; }
     else if (/valid|有效/i.test(L)) { block(L, [d.validity]); seen.valid = true; }
@@ -157,6 +160,17 @@ export async function slimTemplate(file: ArrayBuffer): Promise<string> {
   (wb as unknown as { media: unknown[] }).media = [];
   wb.worksheets.forEach((ws) => { (ws as unknown as { _media: unknown[] })._media = []; });
   return bufToB64(await wb.xlsx.writeBuffer() as ArrayBuffer);
+}
+
+const CJK = /[\u3400-\u9fff\uf900-\ufaff]/;
+/** Chinese text in the first sheet of an RFQ template (labels like "Item\n（序号）", project lines), for translation. */
+export async function templateTexts(fileB64: string): Promise<string[]> {
+  const ExcelJS = await lib();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(b64ToBuf(fileB64));
+  const out = new Set<string>();
+  wb.worksheets[0].eachRow((row) => row.eachCell((c) => { const t = cellText(c.value); if (CJK.test(t) && !(c as unknown as { formula?: string }).formula) out.add(t); }));
+  return [...out];
 }
 
 async function buildFromTemplate(d: RfqDoc, fileB64: string): Promise<Blob> {
@@ -202,7 +216,8 @@ async function buildFromTemplate(d: RfqDoc, fileB64: string): Promise<Blob> {
   // 1. Header block, with the title / request lines rewritten.
   for (let r = 1; r <= hdr; r++) copyRow(r, r, true);
   mergeRows(1, hdr, 0);
-  const suffix = d.template?.titleSuffix || d.project || "";
+  const suffix0 = d.template?.titleSuffix || d.project || "";
+  const suffix = d.english ? d.extra?.[suffix0] ?? suffix0 : suffix0;
   for (let r = 1; r < hdr; r++) {
     const c = dw.getCell(r, 1); const t = cellText(c.value).trim();
     if (/^RFQ for/i.test(t)) c.value = `RFQ for ${d.titleEn || d.titleCn}${suffix ? " - " + suffix : ""}`;
@@ -234,7 +249,7 @@ async function buildFromTemplate(d: RfqDoc, fileB64: string): Promise<Blob> {
     const r = first + i;
     copyRow(proto, r, false);
     for (const m of rowMerges) dw.mergeCells(r, m.c1, r, m.c2);
-    const parts = ln.name.split(/\s+(?=[A-Z0-9])/);
+    const parts = d.english ? [ln.name] : ln.name.split(/\s+(?=[A-Z0-9])/);
     const name = parts.length > 1 ? `${parts[0]}\n${parts.slice(1).join(" ")}` : ln.name;
     const set = (c: number | undefined, v: unknown) => { if (c) dw.getCell(r, c).value = v as never; };
     set(role.no, Number(ln.no)); set(role.name, name); set(role.spec, ln.spec); set(role.unit, ln.unit); set(role.qty, ln.qty); set(role.tech, ln.techReq);
@@ -268,6 +283,16 @@ async function buildFromTemplate(d: RfqDoc, fileB64: string): Promise<Blob> {
     if (/deadline|截止/i.test(label)) valueCell.value = fmtDate(d.deadline);
     else if (/valid|有效期/i.test(label)) valueCell.value = d.validity;
     else if (/payment|支付/i.test(label)) valueCell.value = d.payment;
+  }
+  // English only: replace the template's own Chinese text (labels, project lines) with the English versions.
+  if (d.english) {
+    dw.eachRow((row) => row.eachCell((c) => {
+      const v = c.value as unknown;
+      if (v == null || (typeof v === "object" && "formula" in (v as object))) return;
+      const t = cellText(v);
+      if (!CJK.test(t)) return;
+      c.value = d.extra?.[t] ?? t.replace(/[（(][^（）()]*[\u3400-\u9fff][^（）()]*[）)]/g, "").replace(/[\u3400-\u9fff\uf900-\ufaff，。；：、]+/g, " ").replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+    }));
   }
   return new Blob([await out.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }

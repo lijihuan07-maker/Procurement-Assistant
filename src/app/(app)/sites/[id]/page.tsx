@@ -21,7 +21,7 @@ export default function SitePage({ params }: { params: Promise<{ id: string }> }
   const [d, setD] = useState<SiteData | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [f, setF] = useState({ name: "", location: "", owner: "" });
+  const [f, setF] = useState({ name: "", nameEn: "", location: "", owner: "" });
   const { busy, run } = useBusy();
   useEffect(() => {
     announceSite(id);
@@ -44,17 +44,18 @@ export default function SitePage({ params }: { params: Promise<{ id: string }> }
   return (
     <>
       <PageHeader crumbs={[{ href: "/projects", label: T("项目") }]} title={s.name}
-        facts={[[T("地点"), s.location], [T("业主"), s.owner]]}
+        facts={[[T("英文名称"), s.nameEn], [T("地点"), s.location], [T("业主"), s.owner]]}
         actions={<>
           <Busy text={busy} />
-          <Button variant="ghost" size="sm" onClick={() => { setF({ name: s.name, location: s.location, owner: s.owner }); setEditing(!editing); }}><Pencil />{T("编辑")}</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setF({ name: s.name, nameEn: s.nameEn, location: s.location, owner: s.owner }); setEditing(!editing); }}><Pencil />{T("编辑")}</Button>
           <Button variant="ghost" size="sm" className="text-bad hover:bg-bad-soft" onClick={remove}><Trash2 />{T("删除工程项目")}</Button>
         </>} />
       {editing && (
         <Section title={T("编辑工程项目")} actions={<Button variant="ghost" size="icon" aria-label={T("关闭")} onClick={() => setEditing(false)}><X /></Button>}>
           <form onSubmit={save} className="grid gap-4">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Field label={T("工程项目名称")}><Input id="se-name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+              <Field label={T("英文名称（写进英文询价单和邮件）")}><Input id="se-name-en" value={f.nameEn} placeholder={T("留空则首次发邮件时由 AI 翻译")} onChange={(e) => setF({ ...f, nameEn: e.target.value })} /></Field>
               <Field label={T("项目地点")}><Input id="se-loc" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} /></Field>
               <Field label={T("业主")}><Input id="se-owner" value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} /></Field>
             </div>

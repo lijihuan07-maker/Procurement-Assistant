@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Field, Input, Select } from "@/components/ui/input";
 import { useBusy, Busy, PageHeader, Section, TableFrame, Banner, Loading, toast } from "@/components/app";
 
-type Data = { company: { id: string; name: string; senderName: string }; members: { id: string; email: string; name: string; role: string }[]; me: { role: string } };
+type Data = { company: { id: string; name: string; senderName: string; nameEn: string; senderEn: string }; members: { id: string; email: string; name: string; role: string }[]; me: { role: string } };
 const ROLES: Record<string, string> = { admin: "管理员", manager: "采购经理", buyer: "采购工程师" };
 
 /** One row of the settings list: label and hint on the left, the control on the right. */
@@ -29,11 +29,11 @@ export default function Settings() {
   const lang = useLang();
   const [p, setP] = useState<Prefs>(DEFAULT_PREFS);
   const [d, setD] = useState<Data | null>(null);
-  const [c, setC] = useState({ name: "", senderName: "" });
+  const [c, setC] = useState({ name: "", senderName: "", nameEn: "", senderEn: "" });
   const [m, setM] = useState({ email: "", name: "", password: "", role: "buyer" });
   const { busy, run } = useBusy();
   useEffect(() => { setP(loadPrefs()); }, []);
-  useEffect(() => { api<Data>("/api/company").then((x) => { setD(x); setC({ name: x.company.name, senderName: x.company.senderName }); }).catch((e) => toast(e.message, true)); }, []);
+  useEffect(() => { api<Data>("/api/company").then((x) => { setD(x); setC({ name: x.company.name, senderName: x.company.senderName, nameEn: x.company.nameEn, senderEn: x.company.senderEn }); }).catch((e) => toast(e.message, true)); }, []);
   const set = (patch: Partial<Prefs>) => { const n = { ...p, ...patch }; setP(n); savePrefs(n); };
   const admin = d?.me.role === "admin";
 
@@ -101,7 +101,10 @@ export default function Settings() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={T("公司名称")}><Input id="c-name" value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} disabled={!admin} /></Field>
                 <Field label={T("邮件落款人")}><Input id="c-sender" value={c.senderName} onChange={(e) => setC({ ...c, senderName: e.target.value })} disabled={!admin} /></Field>
+                <Field label={T("公司英文名（写进英文询价单和邮件）")}><Input id="c-name-en" value={c.nameEn} placeholder={T("留空则首次发邮件时由 AI 翻译")} onChange={(e) => setC({ ...c, nameEn: e.target.value })} disabled={!admin} /></Field>
+                <Field label={T("落款人英文名")}><Input id="c-sender-en" value={c.senderEn} placeholder={T("例如：Li Jihuan")} onChange={(e) => setC({ ...c, senderEn: e.target.value })} disabled={!admin} /></Field>
               </div>
+              <p className="text-xs text-muted-foreground">{T("发给供应商的邮件一律用英文。")}</p>
               {admin && <div className="flex items-center gap-3"><Button type="submit" id="c-save" disabled={!!busy}>{T("保存")}</Button><Busy text={busy} /></div>}
             </form>
           </Section>

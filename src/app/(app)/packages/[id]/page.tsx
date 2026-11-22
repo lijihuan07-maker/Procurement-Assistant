@@ -1,19 +1,21 @@
 "use client";
 import { use, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Copy, Download, Globe, Lock, LockOpen, Mail, Plus, Sparkles } from "lucide-react";
-import { api, download, fmt } from "@/lib/client/api";
+import { ArrowRight, Copy, Globe, Lock, LockOpen, Mail, Plus, Sparkles } from "lucide-react";
+import { api, fmt } from "@/lib/client/api";
 import { preloadParsers } from "@/lib/client/files";
 import { tm, useLang, useT } from "@/lib/i18n/client";
 import { names } from "@/lib/client/display";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Field, Input, Textarea } from "@/components/ui/input";
+import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { useBusy, Busy, StatusChip, toast, copyText, PageHeader, Section, TableFrame, Banner, Empty, Stages, Loading } from "@/components/app";
 import { Discover } from "@/components/Discover";
 import type { PackageData } from "@/lib/client/types";
 import { Compare } from "./Compare";
 import { announceSite } from "../../Shell";
-import { type Ctx, rfqBlob, rfqFileName } from "./shared";
+import { type Ctx } from "./shared";
+import { RfqDownload } from "./RfqDownload";
+import { EMAIL_PRESETS } from "@/lib/email-default";
 
 type Tab = "rfq" | "suppliers" | "quotes";
 
@@ -91,7 +93,7 @@ function Rfq({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
       <Section title={T("询价单 {no}", { no: p.rfqNo })}
         actions={<>
           {p.status === "issued" && <Button variant="ghost" size="sm" disabled={!!busy} onClick={unlock}><LockOpen />{T("解锁修改")}</Button>}
-          <Button variant="outline" onClick={async () => download(await rfqBlob(d), rfqFileName(d))}><Download />{T("下载询价单 Excel")}</Button>
+          <RfqDownload d={d} setD={setD} run={run} busy={busy} label={T("下载询价单 Excel")} />
           <Button onClick={onNext}>{T("下一步：选供应商")}<ArrowRight className="rtl:rotate-180" /></Button>
         </>}>
         <dl className="grid gap-x-8 gap-y-3 text-[13px] sm:grid-cols-[max-content_1fr]">
@@ -173,11 +175,18 @@ function Suppliers({ d, setD, run, busy }: Ctx) {
     if (!r) return;
     const nd = await api<PackageData>(`/api/packages/${d.pkg.id}`); setD(nd); setSel([...sel, r.supplier.id]); setAdd({ name: "", email: "", contact: "" });
   }
+  const [tpl, setTpl] = useState(d.customEmail ? "custom" : "standard");
+  const tplSelect = (
+    <Select aria-label={T("邮件模板")} id="mail-tpl" value={tpl} onChange={(e) => setTpl(e.target.value)} className="h-9 w-auto text-xs">
+      {d.customEmail && <option value="custom">{T("自定义（询价设置里的模板）")}</option>}
+      {Object.entries(EMAIL_PRESETS).map(([k, v]) => <option key={k} value={k}>{T(v.label)}</option>)}
+    </Select>
+  );
   const patchInvite = async (id: string, body: Record<string, unknown>) => { const r = await run(T("保存中…"), () => api<PackageData>(`/api/invites/${id}`, { method: "PATCH", body })); if (r) setD(r); };
   return (
     <>
       <Section title={T("选择询价供应商")} description={T("按同类采购次数、报价回复率和评分排序。推荐来自你们自己的供应商库和历史采购记录。")}
-        actions={<Button disabled={!!busy || !sel.length} onClick={async () => { const r = await run(T("生成邮件中…"), () => api<PackageData>(`/api/packages/${d.pkg.id}/invites`, { body: { supplierIds: sel } }), T("邮件已生成")); if (r) { setD(r); setSel([]); } }}><Mail />{T("为勾选的 {n} 家生成询价邮件", { n: sel.length })}</Button>}>
+        actions={<>{tplSelect}<Button disabled={!!busy || !sel.length} onClick={async () => { const r = await run(T("生成邮件中…"), () => api<PackageData>(`/api/packages/${d.pkg.id}/invites`, { body: { supplierIds: sel, template: tpl } }), T("邮件已生成")); if (r) { setD(r); setSel([]); } }}><Mail />{T("为勾选的 {n} 家生成询价邮件", { n: sel.length })}</Button></>}>
         <div className="grid gap-4">
           {!d.recommendations.length ? <Empty>{T("供应商库还是空的。到“供应商库”导入历史采购记录，或在下面直接添加。")}</Empty> : (
             <TableFrame>
@@ -212,10 +221,15 @@ function Suppliers({ d, setD, run, busy }: Ctx) {
 
       {d.invites.length > 0 && (
         <Section title={T("询价邮件（{n}）", { n: d.invites.length })} description={T("一期从你自己的邮箱发送：复制收件人、主题和正文，附上询价单 Excel 发出后，点“标记已发送”。")}
-          actions={<Button variant="outline" onClick={async () => download(await rfqBlob(d), rfqFileName(d))}><Download />{T("下载附件：询价单 Excel")}</Button>}>
+          actions={<RfqDownload d={d} setD={setD} run={run} busy={busy} label={T("下载附件：询价单 Excel")} />}>
           <div className="grid gap-4">
+            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2.5">
+              <span className="text-[13px] font-medium">{T("邮件模板")}</span>{tplSelect}
+              <Button variant="outline" size="sm" disabled={!!busy || !d.invites.some((i) => i.status !== "sent")} onClick={async () => { const r = await run(T("重写中…"), () => api<PackageData>(`/api/packages/${d.pkg.id}/invites`, { body: { template: tpl, regenerate: true } }), T("未发送的邮件已按新模板重写")); if (r) setD(r); }}>{T("用这个模板重写未发送的邮件")}</Button>
+              <span className="text-xs text-muted-foreground">{T("邮件一律用英文；公司、落款人、项目和供应商的中文名会自动译成英文，可在系统设置和工程项目里修改英文名。")}</span>
+            </div>
             {d.invites.map((inv) => (
-              <article key={inv.id} className="rounded-md border">
+              <article key={`${inv.id}:${inv.subject}:${inv.body.length}`} className="rounded-md border">
                 <header className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/50 px-4 py-2.5">
                   <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{inv.supplier.name}</span><span className="text-xs text-muted-foreground">{inv.supplier.email || T("没有邮箱")}</span>
                     {inv.status === "sent" ? <Badge variant="good">{T("已发送 {d}", { d: inv.sentAt?.slice(0, 10) })}</Badge> : <Badge>{T("草稿")}</Badge>}</div>

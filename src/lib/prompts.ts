@@ -172,3 +172,25 @@ export function standardsContext(p: { location: string; standards: { systems: { 
   const names = p.standards?.systems.map((s) => s.name).slice(0, 8).join("；");
   return `\n${head}项目地点：${p.location}。${names ? `当地常用的标准体系：${names}。提问和写技术要求时考虑这些标准（例如是否需要相应认证、是否必须是认可供应商），但不要为了标准凭空增加问题。` : ""}\n`;
 }
+
+/** Chinese (or mixed) text → English for documents that go to suppliers. */
+export function englishPrompt(items: string[]) {
+  return `把下面每一条文字改写成给海外供应商看的英文（采购文件用语，简洁专业）。规则：
+- 已经同时有中文和英文的（如“联锁块 INTERLOCK PAVER”“红色，200X100X80 - RED”），只保留英文部分，必要时补全。
+- 人名用汉语拼音，姓在前，如“李季桓”→“Li Jihuan”。公司名、项目名译成自然的英文，地名用通行英文拼写（如“吉赞”→“Jizan”）。
+- 数字、尺寸、单位、型号、标准代号（如 SAES-D-100、32 14 13）、花括号占位符（如 {supplier}）原样保留。
+- 不增加原文没有的内容，不要解释。
+输出 JSON：{"items": ["…", …]}，条数和顺序与输入完全一致。
+
+输入（JSON 数组）：
+${JSON.stringify(items)}`;
+}
+
+/** Read the text of one page image of a specification (scan or photo). */
+export function ocrPrompt(fileName: string, page: number) {
+  return `这是技术规格书《${fileName}》的第 ${page} 页（扫描件或照片）。把页面上的全部文字按阅读顺序逐字转写出来：
+- 保留章节号（如 SECTION 10 14 53）、条款编号（如 2.1、A.、1)）、标题和换行。
+- 表格每一行写成一行，单元格之间用 " | " 分隔。
+- 原文是什么语言就写什么语言，不要翻译、总结或补充；看不清的字写 [?]。
+输出 JSON：{"text": "…"}`;
+}

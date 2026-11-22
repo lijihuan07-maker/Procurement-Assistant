@@ -17,6 +17,7 @@ export const POST = route(async ({ req, db, user, params }) => {
     const [d] = await db.select().from(schema.specDocs).where(and(eq(schema.specDocs.id, docId), eq(schema.specDocs.projectId, params.id)));
     if (!d) throw new HttpError(404, "规格书不存在");
   } else {
+    await db.update(schema.projects).set({ specsSkipped: false }).where(eq(schema.projects.id, params.id));
     const [d] = await db.insert(schema.specDocs).values({ projectId: params.id, fileName: String(b.fileName || "规格书.pdf"), pages: Number(b.pages) || 0 }).returning();
     docId = d.id;
   }

@@ -20,7 +20,7 @@ function sectionOf(text: string): { no: string; title: string } | null {
  * Index a specification book. CSI MasterFormat books ("SECTION 32 14 13", or footers "32 14 13 - 3") are split by section;
  * other books are split every few pages so they can still be searched by keyword. Scanned books have no text to index.
  */
-export function splitSpec(pages: { page: number; text: string }[]): SplitResult {
+export function splitSpec(pages: { page: number; text: string }[], fileName = ""): SplitResult {
   const chars = pages.reduce((n, p) => n + (p.text.match(/[0-9A-Za-z一-鿿]/g) || []).length, 0);
   if (!pages.length || chars < 40 * pages.length) return { sections: [], mode: "scanned" };
   const out: SplitSection[] = [];
@@ -38,6 +38,11 @@ export function splitSpec(pages: { page: number; text: string }[]): SplitResult 
   if (cur) out.push(cur);
   // A real CSI book has several sections; one or two stray matches mean the numbering is something else.
   if (out.length >= 3 || (out.length && pages.length <= 40)) return { sections: out, mode: "csi" };
+  // One section per file is common ("SECTION 10 14 53 TRAFFIC SIGNAGE.pdf"): take the number from the file name.
+  const fn = fileName.replace(/\.[a-z]+$/i, "").match(/(?:^|\D)(\d{2})\s?(\d{2})\s?(\d{2})(?:\.(\d{2}))?(?!\d)/);
+  if (fn && pages.length <= 60) {
+    return { mode: "csi", sections: [{ sectionNo: `${fn[1]}${fn[2]}${fn[3]}${fn[4] || ""}`, title: fileName.replace(/\.[a-z]+$/i, "").replace(/^\s*SECTION\s*[\d\s.]+[-–—]?\s*/i, "").slice(0, 120), pageFrom: pages[0].page, pageTo: pages[pages.length - 1].page, body: pages.map((p) => `[p.${p.page}]\n${p.text}`).join("\n").slice(0, 80000) }] };
+  }
   const chunks: SplitSection[] = [];
   for (let i = 0; i < pages.length; i += PAGES_PER_CHUNK) {
     const ps = pages.slice(i, i + PAGES_PER_CHUNK);

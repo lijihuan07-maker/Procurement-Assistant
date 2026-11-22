@@ -52,7 +52,7 @@ function canvasToJpeg(cv: HTMLCanvasElement, quality: number): Promise<string> {
   return new Promise((res) => cv.toBlob((b) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.readAsDataURL(b!); }, "image/jpeg", quality));
 }
 
-async function imageFileToJpeg(file: File, maxSide = 1700, quality = 0.8): Promise<AiImage> {
+export async function imageFileToJpeg(file: File, maxSide = 1700, quality = 0.8): Promise<AiImage> {
   const bmp = await createImageBitmap(file);
   const s = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
   const cv = document.createElement("canvas"); cv.width = Math.round(bmp.width * s); cv.height = Math.round(bmp.height * s);
@@ -86,6 +86,18 @@ export async function pdfPages(file: File, maxPages = 1500, onProgress?: (p: num
   };
   await Promise.all(Array.from({ length: Math.min(8, n) }, worker));
   return { pages, numPages: pdf.numPages, pdf };
+}
+
+/** One PDF page as a JPEG for the AI to read (scanned pages). */
+export async function pdfPageJpeg(pdf: Awaited<ReturnType<typeof pdfPages>>["pdf"], page: number, side = 1600, quality = 0.75): Promise<AiImage> {
+  const pg = await pdf.getPage(page);
+  const vp0 = pg.getViewport({ scale: 1 });
+  const vp = pg.getViewport({ scale: Math.min(2.5, side / vp0.width) });
+  const cv = document.createElement("canvas"); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+  const cx = cv.getContext("2d")!; cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+  await pg.render({ canvasContext: cx, viewport: vp }).promise;
+  pg.cleanup();
+  return { mediaType: "image/jpeg", data: await canvasToJpeg(cv, quality) };
 }
 
 /** Read any supported file for the AI: text when available, page images for scans and photos. */

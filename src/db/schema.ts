@@ -14,6 +14,9 @@ export const companies = pgTable("companies", {
   paymentTerms: text("payment_terms").notNull().default("Payment will be released within 45 days upon delivery of the materials to site, acceptance by the Buyer and receipt of the correct official invoice."),
   validity: text("validity").notNull().default("Within 90 days"),
   senderName: text("sender_name").notNull().default(""),
+  /** English forms used in RFQs and emails to suppliers (filled by AI translation if left empty). */
+  nameEn: text("name_en").notNull().default(""),
+  senderEn: text("sender_en").notNull().default(""),
   createdAt: createdAt(),
 });
 
@@ -38,6 +41,7 @@ export const sites = pgTable("sites", {
   id: id(),
   companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  nameEn: text("name_en").notNull().default(""), // used in RFQs and supplier emails
   location: text("location").notNull().default(""),
   owner: text("owner").notNull().default(""),
   /** Material standards that apply where the project is, identified by AI from the location. */
@@ -53,6 +57,7 @@ export const projects = pgTable("projects", {
   name: text("name").notNull(),
   kind: text("kind").notNull().default("material"), // material | subcontract | rental | service
   demandFileName: text("demand_file_name"),
+  specsSkipped: boolean("specs_skipped").notNull().default(false), // simple materials: no specification book needed
   /** RFQ numbering, terms and templates for this requirement; copied from an earlier one when created from a template. */
   settings: jsonb("settings").$type<ReqSettings | null>(),
   createdAt: createdAt(),
@@ -242,7 +247,9 @@ export const editLog = pgTable("edit_log", {
 
 /* ---------- JSON shapes ---------- */
 export type RfqLine = { no: string; itemId: string; name: string; spec: string; unit: string; qty: number; techReq: string; hint: string; category: string };
-export type RfqSnapshot = { rfqNo: string; title: string; titleEn: string; project: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[]; standards?: string[] };
+export type RfqSnapshot = { rfqNo: string; title: string; titleEn: string; project: string; projectEn?: string; currency: string; vatRate: number; deadline: string; validity: string; payment: string; lines: RfqLine[]; standards?: string[]; en?: RfqEnglish };
+/** English-only version of a locked RFQ's text, made once by AI when first exported in English. */
+export type RfqEnglish = { title: string; project: string; validity: string; payment: string; standards: string[]; lines: Record<string, { name: string; spec: string; techReq: string }>; extra?: Record<string, string> };
 export type Overrides = { price: Record<string, Record<string, number>>; factor: Record<string, number> };
 export type Flag = { level: "高" | "中" | "低" | "信息"; category: string; title: string; detail: string; action: string; source?: string };
 export type Award = { mode: "whole" | "items"; quoteId?: string; items?: Record<string, string>; at: string };

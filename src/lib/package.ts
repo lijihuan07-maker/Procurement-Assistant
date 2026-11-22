@@ -75,7 +75,7 @@ export async function loadPackage(db: DB, packageId: string) {
     settings: { ...settings, rfqTemplate: null, email: null }, nextRfqNo: pkg.status === "draft" ? await nextRfqNo(db, company.id, settings) : "",
     lines, quotes, invites: invites.map((r) => ({ ...r.invite, supplier: r.supplier })),
     rfqTemplate: settings.rfqTemplate,
-    emailTemplate: settings.email || DEFAULT_EMAIL,
+    emailTemplate: settings.email || DEFAULT_EMAIL, customEmail: !!settings.email,
     history,
     recommendations: recos.map((r) => ({ supplier: r.supplier, reasons: r.reasons, score: r.score, match: r.match, isNew: r.isNew, tier: r.tier })),
   };
@@ -83,5 +83,7 @@ export async function loadPackage(db: DB, packageId: string) {
 
 export function fillEmail(t: EmailTemplate, v: Record<string, string>) {
   const f = (s: string) => s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
-  return { subject: f(t.subject), body: f(t.body) };
+  // A value that came out empty must not leave a double space behind.
+  const tidy = (x: string) => x.replace(/[ \t]{2,}/g, " ").replace(/ ([,.])/g, "$1");
+  return { subject: tidy(f(t.subject)), body: tidy(f(t.body)) };
 }

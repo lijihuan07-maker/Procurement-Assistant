@@ -45,6 +45,17 @@ async function mock(task: string, mockKey?: string): Promise<unknown> {
 
 class RetryableError extends Error {}
 
+/** Network-level failures (connection refused/reset/timed out, stream cut off) are worth retrying. */
+function networkError(e: unknown): RetryableError | null {
+  if (!(e instanceof Error)) return null;
+  const cause = (e as Error & { cause?: { code?: string; message?: string } }).cause;
+  const code = cause?.code || (e as Error & { code?: string }).code || "";
+  if (e.name === "TypeError" && /fetch failed|terminated|network/i.test(e.message) || /ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR|EPIPE|socket|terminated|aborted/i.test(code + " " + e.message)) {
+    return new RetryableError(`NETWORK ${code || e.message}${cause?.message && cause.message !== code ? ` (${cause.message})` : ""}`);
+  }
+  return null;
+}
+
 /** Turn common provider errors into instructions the user can act on. */
 function friendlyError(status: number, body: string): string | null {
   if (/Arrearage|overdue-payment|insufficient.?(balance|quota)|余额不足|欠费/i.test(body)) return "AI 服务账户余额不足或已欠费：请到模型服务商的费用中心充值（阿里云：费用与成本 → 充值），充值后重试。";
@@ -87,11 +98,15 @@ async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens
   // Web search (通义千问 enable_search). "max" searches more widely; fall back to the default strategy if the model refuses it.
   let strategy = process.env.AI_SEARCH_STRATEGY || "max";
   const search = () => (webSearch ? { enable_search: true, search_options: { forced_search: true, search_strategy: strategy } } : {});
-  const send = (max: number) => fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, stream: true, max_tokens: max, temperature: 0.1, messages: [{ role: "system", content: SYSTEM }, { role: "user", content }], ...search() }),
-  });
+  const send = async (max: number) => {
+    try {
+      return await fetch(`${base}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+        body: JSON.stringify({ model, stream: true, max_tokens: max, temperature: 0.1, messages: [{ role: "system", content: SYSTEM }, { role: "user", content }], ...search() }),
+      });
+    } catch (e) { throw networkError(e) || e; }
+  };
   let res = await send(Math.min(maxTokens, cap));
   if (res.status === 400 && webSearch && strategy !== "turbo") {
     const t = await res.clone().text();
@@ -118,7 +133,9 @@ async function callOpenAiCompatible(prompt: string, images: AiImage[], maxTokens
   const dec = new TextDecoder();
   let buf = "", out = "", finish = "";
   for (;;) {
-    const { done, value } = await reader.read();
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try { chunk = await reader.read(); } catch (e) { throw networkError(e) || new RetryableError(`NETWORK ${e instanceof Error ? e.message : e}`); }
+    const { done, value } = chunk;
     if (done) break;
     buf += dec.decode(value, { stream: true });
     let i: number;
@@ -145,16 +162,23 @@ export async function askJson<T>(task: string, prompt0: string, opts: { images?:
   if (process.env.AI_MOCK === "1") return (await mock(task, opts.mockKey)) as T;
   const call = provider() === "openai" ? callOpenAiCompatible : callAnthropic;
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Network hiccups between the server and the model service are common across borders: retry with a short pause.
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return extractJson(await call(prompt, opts.images || [], opts.maxTokens ?? 16000, !!opts.webSearch)) as T;
-    } catch (e) {
+    } catch (e0) {
+      const e = networkError(e0) || e0;
       lastErr = e;
       if (e instanceof HttpError) throw e;
       const retry = e instanceof RetryableError || e instanceof SyntaxError || (e instanceof Error && e.message === "AI 没有返回 JSON");
-      if (!retry) break;
+      if (!retry || (attempt === 1 && !(e instanceof RetryableError))) break;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
     }
   }
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  if (/^NETWORK /.test(msg)) {
+    console.error("AI network error after retries:", msg);
+    throw new HttpError(502, "连不上 AI 服务（{msg}），已自动重试 3 次。一般是服务器到模型服务商的网络不稳定，过一会儿再试；经常出现的话请把报错发给管理员。", { msg: msg.slice(8, 120) });
+  }
   throw new HttpError(502, "AI 调用失败：{msg}", { msg });
 }

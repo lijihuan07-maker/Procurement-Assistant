@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, BookCheck, Download, FileText, Layers, Loader2, Merge, Settings2, Sparkles, Trash2, X } from "lucide-react";
 import { api, download, fmt } from "@/lib/client/api";
-import { readDemand, listSheets, pdfPages, pool, preloadParsers, type SheetInfo } from "@/lib/client/files";
+import { readDemand, listSheets, pdfPages, pdfPageJpeg, imageFileToJpeg, isImg, isPdf, pool, preloadParsers, type SheetInfo } from "@/lib/client/files";
+import type { AiImage } from "@/lib/ai-types";
 import { buildQuestions } from "@/lib/client/excel";
 import { splitSpec } from "@/lib/specs";
 import { t, useLang, useT } from "@/lib/i18n/client";
@@ -76,11 +77,11 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       )}
       <Stages current={tab} onSelect={(k) => setTab(k as Tab)} stages={[
         { key: "demand", label: T("需求清单与澄清"), count: open || undefined, tone: "warn", done: d.items.length > 0 && open === 0 },
-        { key: "specs", label: T("技术规格书"), count: d.specDocs.length || undefined, done: d.specDocs.length > 0 },
+        { key: "specs", label: T("技术规格书"), count: d.specDocs.length || (d.project.specsSkipped ? T("已跳过") : undefined), done: d.specDocs.length > 0 || d.project.specsSkipped },
         { key: "packages", label: T("询价包"), count: d.packages.length || undefined, done: d.packages.some((p) => p.status !== "draft") },
       ]} />
       {tab === "demand" && <Demand d={d} setD={setD} run={run} busy={busy} />}
-      {tab === "specs" && <Specs d={d} setD={setD} run={run} busy={busy} />}
+      {tab === "specs" && <Specs d={d} setD={setD} run={run} busy={busy} onNext={() => setTab("packages")} />}
       {tab === "packages" && <Packages d={d} setD={setD} run={run} busy={busy} />}
     </>
   );
@@ -311,40 +312,91 @@ function QuestionCard({ q, item, onAnswer, disabled, lang }: { q: Question; item
 }
 
 /* ================= specification books ================= */
-function Specs({ d, setD, run, busy }: Ctx) {
+const SPEC_ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp";
+const MAX_SCAN_PAGES = 40;
+
+/** Text of scanned pages or photos, read by AI one page at a time (a few in parallel). */
+async function ocrPages(projectId: string, fileName: string, images: (() => Promise<AiImage>)[], step: (s: string) => void, tag: string) {
+  let done = 0;
+  step(tag + t("AI 正在识别扫描页：{a}/{n}", { a: 0, n: images.length }));
+  return pool(images, 4, async (img, i) => {
+    const { text } = await api<{ text: string }>(`/api/projects/${projectId}/specs/ocr`, { body: { image: await img(), page: i + 1, fileName } });
+    step(tag + t("AI 正在识别扫描页：{a}/{n}", { a: ++done, n: images.length }));
+    return { page: i + 1, text };
+  });
+}
+
+function Specs({ d, setD, run, busy, onNext }: Ctx & { onNext: () => void }) {
   const T = useT();
   async function upload(files: File[]) {
     if (!files.length) return;
-    const r = await run(T("读取 {f}…", { f: files[0].name }), async (step) => {
+    // Pictures picked together are pages of one document, in the order chosen.
+    const imgs = files.filter(isImg), pdfs = files.filter(isPdf);
+    const jobs: { name: string; read: (step: (s: string) => void, tag: string) => Promise<{ pages: { page: number; text: string }[]; numPages: number }> }[] = [
+      ...pdfs.map((f) => ({
+        name: f.name,
+        read: async (step: (s: string) => void, tag: string) => {
+          const { pages, numPages, pdf } = await pdfPages(f, 1500, (p, n) => { if (p % 25 === 0 || p === n) step(tag + t("读取 {f}：{p}/{n} 页", { f: f.name, p, n })); });
+          if (splitSpec(pages, f.name).mode !== "scanned") return { pages, numPages };
+          // Scanned PDF: let the AI read the page images.
+          const n = Math.min(numPages, MAX_SCAN_PAGES);
+          if (numPages > MAX_SCAN_PAGES) toast(t("{f} 是扫描件，共 {n} 页，先识别前 {m} 页", { f: f.name, n: numPages, m: MAX_SCAN_PAGES }));
+          const read = await ocrPages(d.project.id, f.name, Array.from({ length: n }, (_, i) => () => pdfPageJpeg(pdf, i + 1)), step, tag);
+          return { pages: read, numPages };
+        },
+      })),
+      ...(imgs.length ? [{
+        name: imgs.length > 1 ? t("{f} 等 {n} 张图片", { f: imgs[0].name, n: imgs.length }) : imgs[0].name,
+        read: async (step: (s: string) => void, tag: string) => {
+          const pages = await ocrPages(d.project.id, imgs[0].name, imgs.map((f) => () => imageFileToJpeg(f)), step, tag);
+          return { pages, numPages: imgs.length };
+        },
+      }] : []),
+    ];
+    if (!jobs.length) { toast(T("请上传 PDF 或图片"), true); return; }
+    const r = await run(T("读取 {f}…", { f: jobs[0].name }), async (step) => {
       let last: ProjectData | null = null;
-      const skipped: string[] = [];
-      for (const [k, f] of files.entries()) {
-        const tag = files.length > 1 ? `(${k + 1}/${files.length}) ` : "";
-        const { pages, numPages } = await pdfPages(f, 1500, (p, n) => { if (p % 25 === 0 || p === n) step(tag + t("读取 {f}：{p}/{n} 页", { f: f.name, p, n })); });
-        const { sections: secs, mode } = splitSpec(pages);
-        if (mode === "scanned") { skipped.push(f.name); continue; }
+      const failed: string[] = [];
+      for (const [k, job] of jobs.entries()) {
+        const tag = jobs.length > 1 ? `(${k + 1}/${jobs.length}) ` : "";
+        const { pages, numPages } = await job.read(step, tag);
+        const { sections: secs, mode } = splitSpec(pages, job.name);
+        if (mode === "scanned" || !secs.length) { failed.push(job.name); continue; }
         step(tag + t("建立索引…"));
         let docId: string | undefined; let batch: typeof secs = []; let size = 0;
         const send = async (end: boolean) => {
-          const res = await api<ProjectData & { docId?: string }>(`/api/projects/${d.project.id}/specs`, { body: { fileName: f.name, pages: numPages, sections: batch, docId, last: end } });
+          const res = await api<ProjectData & { docId?: string }>(`/api/projects/${d.project.id}/specs`, { body: { fileName: job.name, pages: numPages, sections: batch, docId, last: end } });
           docId = docId || res.docId; batch = []; size = 0; return res;
         };
         for (const s of secs) { if (size + s.body.length > 1_500_000 && batch.length) await send(false); batch.push(s); size += s.body.length; }
         last = (await send(true)) as ProjectData;
       }
-      if (skipped.length && !last) throw new Error(t("{f} 是扫描件（PDF 里没有文字，只有图片），暂时读不了。请向设计院或工程部要可以复制文字的电子版 PDF。", { f: skipped.join("、") }));
-      if (skipped.length) toast(t("{f} 是扫描件，没有文字，已跳过", { f: skipped.join("、") }), true);
+      if (failed.length && !last) throw new Error(t("{f} 里没有读出文字。请确认文件清楚、不是空白页。", { f: failed.join("、") }));
+      if (failed.length) toast(t("{f} 里没有读出文字，已跳过", { f: failed.join("、") }), true);
       return last;
     }, T("规格书已建立索引"));
     if (r && "project" in r) setD(r as ProjectData);
   }
+  async function skip(v: boolean) {
+    const r = await run(T("保存中…"), () => api<ProjectData>(`/api/projects/${d.project.id}`, { method: "PATCH", body: { specsSkipped: v } }));
+    if (r) { setD(r); if (v) onNext(); }
+  }
   const linked = d.items.filter((i) => /\d{2}\s?\d{2}\s?\d{2}/.test(i.specRef || i.techReq)).length;
   const open = d.items.reduce((n, i) => n + i.questions.filter((q) => q.status === "open").length, 0);
+  const skipped = d.project.specsSkipped && !d.specDocs.length;
   return (
-    <Section title={T("技术规格书")} description={T("上传项目的技术规格书 PDF，可以一次选多份，每份可以几百页。按 “SECTION 32 14 13” 这样的章节号编排的规格书按章节建立索引，其他格式按页建立索引。AI 会找到每个需求项对应的内容，用原文回答待确认问题，并把技术要求写进询价单。")}
+    <Section title={T("技术规格书")} description={T("可选。上传项目的技术规格书：PDF（可以几百页）、扫描件或拍的照片都可以，一次可以选多份。AI 会找到每个需求项对应的内容，用原文回答待确认问题，并把技术要求写进询价单。材料简单、不需要规格书的，可以跳过这一步。")}
       actions={<span className="text-xs text-muted-foreground">{T("{n} 个需求项写了规范章节号", { n: linked })}</span>}>
       <div className="grid gap-4">
-        <Drop id="spec-file" multiple title={T("上传规格书 PDF")} hint={T("可以一次选多份，也可以分几次上传；扫描版 PDF 读不了")} accept=".pdf" onFiles={upload} disabled={!!busy} />
+        {skipped ? (
+          <Banner tone="info"><span className="flex flex-wrap items-center gap-x-3 gap-y-1">{T("已跳过技术规格书，询价单按需求清单和已确认的答案编写。")}<Button variant="link" size="sm" disabled={!!busy} onClick={() => skip(false)}>{T("取消跳过")}</Button></span></Banner>
+        ) : !d.specDocs.length && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed px-4 py-3">
+            <span className="text-[13px] text-muted-foreground">{T("这批材料比较简单，不需要技术规格书？")}</span>
+            <Button variant="outline" size="sm" id="spec-skip" disabled={!!busy} onClick={() => skip(true)}>{T("跳过，直接拆分询价包")}<ArrowRight className="rtl:rotate-180" /></Button>
+          </div>
+        )}
+        <Drop id="spec-file" multiple title={T("上传技术规格书")} hint={T("PDF、扫描件或图片（JPG/PNG），可以一次选多份；几张图片一起选时按一份文件处理，扫描件由 AI 逐页识别")} accept={SPEC_ACCEPT} onFiles={upload} disabled={!!busy} />
         {d.specDocs.length > 0 && (
           <TableFrame>
             <thead><tr><th>{T("文件")}</th><th className="n">{T("页数")}</th><th>{T("索引")}</th><th></th></tr></thead>
@@ -354,13 +406,17 @@ function Specs({ d, setD, run, busy }: Ctx) {
             ))}</tbody>
           </TableFrame>
         )}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button disabled={!!busy || !d.specDocs.length || !d.items.length} onClick={async () => {
-            const r = await run(T("AI 正在查阅规格书…"), () => api<ProjectData & { matched: number; answered: number }>(`/api/projects/${d.project.id}/clarify`, { body: {} }));
-            if (r) { setD(r); toast(T("匹配到 {a} 个需求项，从规格书回答了 {b} 个问题", { a: r.matched, b: r.answered })); }
-          }}><Sparkles />{T("用规格书回答待确认问题（{n}）", { n: open })}</Button>
-          <Busy text={busy} />
-        </div>
+        {d.specDocs.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button disabled={!!busy || !d.items.length} onClick={async () => {
+              const r = await run(T("AI 正在查阅规格书…"), () => api<ProjectData & { matched: number; answered: number }>(`/api/projects/${d.project.id}/clarify`, { body: {} }));
+              if (r) { setD(r); toast(T("匹配到 {a} 个需求项，从规格书回答了 {b} 个问题", { a: r.matched, b: r.answered })); }
+            }}><Sparkles />{T("用规格书回答待确认问题（{n}）", { n: open })}</Button>
+            <Button variant="ghost" onClick={onNext}>{T("下一步：拆分询价包")}<ArrowRight className="rtl:rotate-180" /></Button>
+            <Busy text={busy} />
+          </div>
+        )}
+        {!d.specDocs.length && <Busy text={busy} />}
       </div>
     </Section>
   );
