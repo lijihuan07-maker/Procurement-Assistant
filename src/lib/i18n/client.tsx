@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext } from "react";
 import { translate, LANG_COOKIE, type Lang, type Vars, type Msg } from "./index";
+import { familyName } from "@/lib/taxonomy";
 
 /* Language is fixed for a page load (switching reloads), so helpers outside React can read it from here. */
 let current: Lang = "zh";
@@ -9,7 +10,12 @@ export function lang(): Lang { return current; }
 
 /** For event handlers and helpers that run in the browser only. Components use useT(). */
 export function t(s: string, v?: Vars) { return translate(current, s, v); }
-export function tm(m: Msg | string) { return typeof m === "string" ? t(m) : t(m.k, m.v); }
+/** Translate a server message; "@fam:<key>" inside its values becomes the material category name. */
+export function tm(m: Msg | string) {
+  if (typeof m === "string") return t(m);
+  const v = m.v && Object.fromEntries(Object.entries(m.v).map(([k, x]) => [k, typeof x === "string" ? x.replace(/@fam:(\w+)/g, (_, f) => familyName(f, current)) : x]));
+  return t(m.k, v);
+}
 
 const Ctx = createContext<Lang>("zh");
 export function I18nProvider({ lang: l, children }: { lang: Lang; children: React.ReactNode }) {

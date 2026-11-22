@@ -122,8 +122,24 @@ export const suppliers = pgTable("suppliers", {
   rating: doublePrecision("rating"),
   notes: text("notes").notNull().default(""),
   source: text("source").notNull().default("manual"), // manual | import | web
+  country: text("country").notNull().default(""),
+  /** Material families (taxonomy keys) the AI judged this kind of company usually also supplies. */
+  likely: jsonb("likely").$type<string[]>().notNull().default([]),
   createdAt: createdAt(),
 }, (t) => [index("suppliers_company_idx").on(t.companyId)]);
+
+/** What a supplier has supplied or quoted, one row per material. Private to the company. */
+export const supplierMaterials = pgTable("supplier_materials", {
+  id: id(),
+  companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  supplierId: text("supplier_id").notNull().references(() => suppliers.id, { onDelete: "cascade" }),
+  family: text("family").notNull(), // taxonomy key, e.g. "cable"
+  item: text("item").notNull().default(""), // the material as recorded, e.g. "光纤电缆"
+  evidence: text("evidence").notNull().default("declared"), // record (bought/contract/award) | quote | declared (ledger category, typed by user)
+  note: text("note").notNull().default(""),
+  date: text("date").notNull().default(""),
+  createdAt: createdAt(),
+}, (t) => [index("sm_supplier_idx").on(t.supplierId), index("sm_company_family_idx").on(t.companyId, t.family)]);
 
 export const invites = pgTable("invites", {
   id: id(),

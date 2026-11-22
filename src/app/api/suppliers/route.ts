@@ -1,6 +1,8 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { schema } from "@/db";
 import { route, body, HttpError } from "@/lib/http";
+import { addMaterials, materialsBySupplier } from "@/lib/materials";
+import { FAMILY } from "@/lib/taxonomy";
 
 export const GET = route(async ({ db, user }) => {
   const rows = await db.select({
@@ -9,17 +11,22 @@ export const GET = route(async ({ db, user }) => {
     lastDate: sql<string | null>`(select max(r.date) from price_records r where r.company_id = suppliers.company_id and r.supplier_name = suppliers.name)`,
   }).from(schema.suppliers).where(eq(schema.suppliers.companyId, user.companyId)).orderBy(asc(schema.suppliers.name));
   const records = await db.select({ n: sql<number>`count(*)::int` }).from(schema.priceRecords).where(eq(schema.priceRecords.companyId, user.companyId));
-  return { suppliers: rows.map((r) => ({ ...r.supplier, purchases: r.purchases, lastDate: r.lastDate })), priceRecords: records[0]?.n ?? 0 };
+  const mats = await materialsBySupplier(db, user.companyId);
+  return {
+    suppliers: rows.map((r) => ({ ...r.supplier, purchases: r.purchases, lastDate: r.lastDate, materials: (mats.get(r.supplier.id) || []).map((m) => ({ id: m.id, family: m.family, item: m.item, evidence: m.evidence, note: m.note, date: m.date })) })),
+    priceRecords: records[0]?.n ?? 0,
+  };
 });
 
 export const POST = route(async ({ req, db, user }) => {
-  const b = await body<{ name?: string; categories?: string[]; contact?: string; email?: string; phone?: string; city?: string; website?: string; notes?: string }>(req);
+  const b = await body<{ name?: string; categories?: string[]; families?: string[]; contact?: string; email?: string; phone?: string; city?: string; country?: string; website?: string; notes?: string }>(req);
   const name = String(b.name || "").trim();
   if (!name) throw new HttpError(400, "请填写供应商名称");
   const [s] = await db.insert(schema.suppliers).values({
     companyId: user.companyId, name, categories: (b.categories || []).map(String).filter(Boolean),
-    contact: String(b.contact || ""), email: String(b.email || "").trim(), phone: String(b.phone || ""), city: String(b.city || ""), website: String(b.website || "").trim(), notes: String(b.notes || ""),
+    contact: String(b.contact || ""), email: String(b.email || "").trim(), phone: String(b.phone || ""), city: String(b.city || ""), country: String(b.country || ""), website: String(b.website || "").trim(), notes: String(b.notes || ""),
   }).returning();
+  await addMaterials(db, user.companyId, s.id, (b.families || []).filter((k) => FAMILY[k]).map((family) => ({ family, evidence: "declared" })));
   return { supplier: s };
 });
 

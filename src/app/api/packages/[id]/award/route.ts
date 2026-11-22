@@ -3,6 +3,8 @@ import { schema } from "@/db";
 import { route, body, ownPackage, HttpError } from "@/lib/http";
 import { compute, type QuoteRow } from "@/lib/compare";
 import { loadPackage } from "@/lib/package";
+import { addMaterials } from "@/lib/materials";
+import { classify } from "@/lib/taxonomy";
 
 /** Award the whole package to one quote, or line by line. Awarded prices become history records for future comparisons. */
 export const POST = route(async ({ req, db, user, params }) => {
@@ -37,6 +39,16 @@ export const POST = route(async ({ req, db, user, params }) => {
       unit: r.cUnit, unitPrice: Math.round(cell.pCmp * 10000) / 10000, currency: pkg.snapshot.currency, date, source: "award", packageId: pkg.id,
     });
   }
+  // Awarded lines become "has supplied" records for the winning suppliers.
+  const won = new Map<string, { family: string; item: string; evidence: string; note: string; date: string }[]>();
+  for (const r of c.rows) {
+    const q = c.qs.find((x) => x.id === pick[r.line.no]);
+    if (!q?.supplierId) continue;
+    const list = won.get(q.supplierId) || [];
+    list.push({ family: classify(`${r.line.name} ${r.line.spec.split(";")[0]}`, r.line.category)[0], item: r.line.name, evidence: "record", note: pkg.snapshot.rfqNo, date });
+    won.set(q.supplierId, list);
+  }
+  for (const [sid, list] of won) await addMaterials(db, user.companyId, sid, list);
   await db.update(schema.packages).set({ award: { mode: b.mode, quoteId: b.mode === "whole" ? b.quoteId : undefined, items: pick, at: new Date().toISOString() }, status: "awarded" }).where(eq(schema.packages.id, pkg.id));
   return loadPackage(db, pkg.id);
 });

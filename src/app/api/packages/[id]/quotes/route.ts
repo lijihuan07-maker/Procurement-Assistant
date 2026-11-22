@@ -6,6 +6,8 @@ import { askJson, type AiImage } from "@/lib/ai";
 import { quotePrompt } from "@/lib/prompts";
 import { loadPackage } from "@/lib/package";
 import { snapshotTerms } from "@/lib/data";
+import { addMaterials } from "@/lib/materials";
+import { classify } from "@/lib/taxonomy";
 
 export const maxDuration = 300;
 
@@ -40,6 +42,11 @@ export const POST = route(async ({ req, db, user, params, lang }) => {
     supplierId = hit?.supplier.id || null;
   }
   await db.insert(schema.quotes).values({ packageId: pkg.id, fileName: String(b.fileName || ""), supplierId, data });
+  // Remember what this supplier quoted, so later RFQs for similar materials suggest it.
+  if (supplierId) {
+    const quotedNos = new Set(data.lines.filter((l) => Number(l.unitPrice) > 0).map((l) => l.rfqNo));
+    await addMaterials(db, user.companyId, supplierId, s.lines.filter((l) => quotedNos.has(l.no)).map((l) => ({ family: classify(`${l.name} ${l.spec.split(";")[0]}`, l.category)[0], item: l.name, evidence: "quote", note: s.rfqNo, date: new Date().toISOString().slice(0, 10) })));
+  }
   return loadPackage(db, pkg.id);
 });
 

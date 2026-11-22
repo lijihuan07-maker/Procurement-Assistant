@@ -156,6 +156,8 @@ function Suppliers({ d, setD, run, busy }: Ctx) {
         <span className="flex flex-wrap items-center gap-1.5"><span className="font-medium">{r.supplier.name}</span>
           {r.match && i < 3 && !r.isNew && <Badge variant="good">{T("推荐")}</Badge>}
           {r.match && r.isNew && <Badge variant="signal">{T("新供应商")}</Badge>}
+          {r.tier === 2 && <Badge variant="outline">{T("供过同类")}</Badge>}
+          {r.tier === 3 && <Badge variant="outline" className="border-dashed">{T("可能能供")}</Badge>}
         </span>
         <span className="sub">{r.supplier.categories.map((c) => T(c)).join(", ")}</span>
       </td>
